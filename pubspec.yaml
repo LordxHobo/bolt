@@ -20,6 +20,10 @@ dependencies:
   http: ^1.2.2
   web_socket_channel: ^3.0.1
   shared_preferences: ^2.3.2
+  # Pinned: 2.5.0 (released 2026-10-17) moved to a JNI bridge that fails at
+  # startup with "NoSuchMethodError ... SharedPreferencesApiRegistrar.getAll".
+  # Try removing this pin once a later 2.5.x fixes it.
+  shared_preferences_android: 2.4.29
   flutter_secure_storage: ^9.2.2
   cached_network_image: ^3.4.1
   url_launcher: ^6.3.1
