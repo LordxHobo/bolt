@@ -11,7 +11,6 @@ class Services {
 
   static Future<void> init() async {
     await settings.load();
-    await twitch.load();
-    await kick.load();
+    await Future.wait([twitch.load(), kick.load()]);
   }
 }

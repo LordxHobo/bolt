@@ -27,6 +27,14 @@ void _android() {
     );
   }
   s = s.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="$appName"');
+  // Use the older Skia renderer on Android. Impeller (the default) shows a
+  // blank screen on some emulators such as BlueStacks. Ignored if unsupported.
+  if (!s.contains('EnableImpeller')) {
+    s = s.replaceFirstMapped(
+      RegExp(r'<application[^>]*>'),
+      (m) => '${m.group(0)}\n        <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />',
+    );
+  }
   manifest.writeAsStringSync(s);
   stdout.writeln('Patched ${manifest.path}');
 

@@ -11,13 +11,23 @@ Future<void> main() async {
     final text = await rootBundle.loadString('assets/adblock/LICENSE-TwitchAdSolutions.txt');
     yield LicenseEntryWithLineBreaks(const ['TwitchAdSolutions (vaft, video-swap-new)'], text);
   });
-  await Services.init();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  // Draw the app right away; loading settings happens behind a splash so a
+  // slow or broken storage call can never leave the screen blank.
   runApp(const RelayApp());
 }
 
-class RelayApp extends StatelessWidget {
+class RelayApp extends StatefulWidget {
   const RelayApp({super.key});
+
+  @override
+  State<RelayApp> createState() => _RelayAppState();
+}
+
+class _RelayAppState extends State<RelayApp> {
+  late Future<void> _init = _start();
+
+  Future<void> _start() => Services.init().timeout(const Duration(seconds: 15));
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +49,65 @@ class RelayApp extends StatelessWidget {
         ),
         dividerColor: Colors.white12,
       ),
-      home: const HomeScreen(),
+      home: FutureBuilder<void>(
+        future: _init,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const _Splash();
+          }
+          if (snap.hasError) {
+            return _StartupError(
+              error: snap.error!,
+              onRetry: () => setState(() => _init = _start()),
+              onContinue: () => setState(() => _init = Future.value()),
+            );
+          }
+          return const HomeScreen();
+        },
+      ),
+    );
+  }
+}
+
+class _Splash extends StatelessWidget {
+  const _Splash();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+}
+
+class _StartupError extends StatelessWidget {
+  const _StartupError({required this.error, required this.onRetry, required this.onContinue});
+
+  final Object error;
+  final VoidCallback onRetry;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Relay could not start', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              SelectableText('$error'),
+              const SizedBox(height: 24),
+              FilledButton(onPressed: onRetry, child: const Text('Try again')),
+              if (Services.settings.isLoaded) ...[
+                const SizedBox(height: 8),
+                OutlinedButton(onPressed: onContinue, child: const Text('Continue anyway')),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

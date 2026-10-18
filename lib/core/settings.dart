@@ -6,7 +6,44 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
 
-const secureStorage = FlutterSecureStorage();
+/// Secure storage (Keychain / Android Keystore) with a time limit on every
+/// call. Some Android emulators fake the Keystore badly and a call can hang
+/// forever; this way the app keeps working and only the saved logins are lost.
+class SecureStore {
+  const SecureStore();
+
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+  static const _timeout = Duration(seconds: 4);
+
+  Future<String?> read({required String key}) async {
+    try {
+      return await _storage.read(key: key).timeout(_timeout);
+    } catch (e) {
+      debugPrint('Secure storage read "$key" failed: $e');
+      return null;
+    }
+  }
+
+  Future<void> write({required String key, required String? value}) async {
+    try {
+      await _storage.write(key: key, value: value).timeout(_timeout);
+    } catch (e) {
+      debugPrint('Secure storage write "$key" failed: $e');
+    }
+  }
+
+  Future<void> delete({required String key}) async {
+    try {
+      await _storage.delete(key: key).timeout(_timeout);
+    } catch (e) {
+      debugPrint('Secure storage delete "$key" failed: $e');
+    }
+  }
+}
+
+const secureStorage = SecureStore();
 
 /// Which TwitchAdSolutions-style script is injected into the Twitch player.
 enum AdBlockScript {
@@ -42,8 +79,12 @@ class Settings extends ChangeNotifier {
 
   List<ChannelRef> favorites = [];
 
+  /// True once the basic (non-secure) settings are available.
+  bool isLoaded = false;
+
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
+    isLoaded = true;
     twitchClientId = _prefs.getString('twitchClientId') ?? '';
     kickClientId = _prefs.getString('kickClientId') ?? '';
     kickRedirectUri = _prefs.getString('kickRedirectUri') ?? defaultKickRedirect;
