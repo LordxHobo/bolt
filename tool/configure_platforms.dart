@@ -48,7 +48,37 @@ void _android() {
       final v = int.parse(m.group(2)!);
       return v < 24 ? m.group(0)!.replaceFirst(m.group(2)!, '24') : m.group(0)!;
     });
+    // Make sure the release build reads proguard-rules.pro (written below).
+    // Flutter usually adds it already; listing it twice is harmless.
+    if (!g.contains('proguard-rules.pro')) {
+      final kts = name.endsWith('.kts');
+      g = g.replaceFirstMapped(
+        RegExp(r'signingConfig\s*=?\s*signingConfigs\.getByName\("debug"\)'),
+        (m) => kts
+            ? '${m.group(0)}\n            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")'
+            : "${m.group(0)}\n            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'",
+      );
+    }
     gradle.writeAsStringSync(g);
+  }
+
+  // R8 (the release-build optimizer) has broken plugin code at runtime, e.g.
+  // "NoSuchMethodError ... SharedPreferencesApiRegistrar.getAll". Keep plugin
+  // classes as they are and skip the optimization pass; the size cost is small.
+  final rules = File('android/app/proguard-rules.pro');
+  const relayRules = '''
+# --- Relay ---
+-dontoptimize
+-keep class io.flutter.plugins.** { *; }
+-keep class dev.flutter.pigeon.** { *; }
+-keep class com.pichillilorenzo.** { *; }
+-keep class com.it_nomads.fluttersecurestorage.** { *; }
+-keep class dev.fluttercommunity.plus.** { *; }
+''';
+  final existing = rules.existsSync() ? rules.readAsStringSync() : '';
+  if (!existing.contains('# --- Relay ---')) {
+    rules.writeAsStringSync('$existing\n$relayRules');
+    stdout.writeln('Wrote ${rules.path}');
   }
 }
 
