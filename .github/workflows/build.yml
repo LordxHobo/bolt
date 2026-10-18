@@ -30,8 +30,10 @@ jobs:
 
       - name: Generate platform folders
         run: |
-          if [ ! -d android ]; then
-            flutter create --platforms=android --org io.github.relayapp --project-name relay .
+          # Both platforms, even though each job only builds one: the icon
+          # generator writes Android and iOS icons in one go.
+          if [ ! -d android ] || [ ! -d ios ]; then
+            flutter create --platforms=android,ios --org io.github.relayapp --project-name relay .
           fi
           dart run tool/configure_platforms.dart
 
@@ -83,8 +85,10 @@ jobs:
 
       - name: Generate platform folders
         run: |
-          if [ ! -d ios ]; then
-            flutter create --platforms=ios --org io.github.relayapp --project-name relay .
+          # Both platforms, even though each job only builds one: the icon
+          # generator writes Android and iOS icons in one go.
+          if [ ! -d android ] || [ ! -d ios ]; then
+            flutter create --platforms=android,ios --org io.github.relayapp --project-name relay .
           fi
           dart run tool/configure_platforms.dart
 
