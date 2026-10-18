@@ -37,6 +37,18 @@ jobs:
 
       - run: flutter pub get
 
+      # Newer Android build tools reject getDefaultProguardFile('proguard-android.txt'),
+      # which some plugins (flutter_inappwebview_android 1.1.x) still use. Swap in
+      # the optimize variant, the same fix the plugin made upstream.
+      - name: Patch plugin ProGuard config
+        run: |
+          CACHE="${PUB_CACHE:-$HOME/.pub-cache}"
+          find "$CACHE" -path '*/android/build.gradle*' -type f \
+            -exec grep -l "proguard-android.txt" {} + 2>/dev/null | while read -r f; do
+              echo "Patching $f"
+              sed -i "s/proguard-android\.txt/proguard-android-optimize.txt/g" "$f"
+            done
+
       - name: Analyze (fails only on errors)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
