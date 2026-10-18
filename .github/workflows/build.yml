@@ -37,6 +37,9 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Generate app icons
+        run: dart run flutter_launcher_icons
+
       # Newer Android build tools reject getDefaultProguardFile('proguard-android.txt'),
       # which some plugins (flutter_inappwebview_android 1.1.x) still use. Swap in
       # the optimize variant, the same fix the plugin made upstream.
@@ -86,6 +89,9 @@ jobs:
           dart run tool/configure_platforms.dart
 
       - run: flutter pub get
+
+      - name: Generate app icons
+        run: dart run flutter_launcher_icons
 
       - name: Build iOS app (no signing)
         run: flutter build ios --release --no-codesign

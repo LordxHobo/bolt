@@ -147,6 +147,7 @@ lib/
   chat/                     chat models, 7TV, chat controller
   ui/                       screens and widgets
 assets/adblock/             bundled TwitchAdSolutions scripts + MIT license
+assets/icon/                app icon (icon.png for iOS, icon_foreground.png for Android)
 tool/configure_platforms.dart   patches the generated android/ and ios/ folders
 ```
 
