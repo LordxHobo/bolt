@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'core/models.dart';
 import 'core/services.dart';
 import 'ui/home_screen.dart';
 
@@ -96,6 +97,8 @@ class _StartupError extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('Relay could not start', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              const Text('Build $relayBuild'),
               const SizedBox(height: 12),
               SelectableText('$error'),
               const SizedBox(height: 24),

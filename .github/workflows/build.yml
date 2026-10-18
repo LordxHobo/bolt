@@ -60,11 +60,11 @@ jobs:
       - run: flutter test
 
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=RELAY_BUILD=${GITHUB_SHA::7}
 
       - uses: actions/upload-artifact@v5
         with:
-          name: relay-android
+          name: relay-android-${{ github.run_number }}
           path: build/app/outputs/flutter-apk/app-release.apk
 
   ios:
@@ -98,7 +98,7 @@ jobs:
         run: dart run flutter_launcher_icons
 
       - name: Build iOS app (no signing)
-        run: flutter build ios --release --no-codesign
+        run: flutter build ios --release --no-codesign --dart-define=RELAY_BUILD=${GITHUB_SHA::7}
 
       - name: Package IPA
         run: |
@@ -108,5 +108,5 @@ jobs:
 
       - uses: actions/upload-artifact@v5
         with:
-          name: relay-ios
+          name: relay-ios-${{ github.run_number }}
           path: relay-unsigned.ipa

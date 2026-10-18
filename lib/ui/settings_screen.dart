@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/models.dart';
 import '../core/services.dart';
 import '../core/settings.dart';
 import '../twitch/adblock.dart';
@@ -219,7 +220,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ListTile(
                 title: const Text('Credits and licenses'),
                 subtitle: const Text(
-                    'Ad blocking: TwitchAdSolutions (MIT). Emotes: 7TV. Not affiliated with Twitch or Kick.'),
+                    'Ad blocking: TwitchAdSolutions (MIT). Emotes: 7TV. Not affiliated with Twitch or Kick.\n'
+                    'Build $relayBuild'),
                 onTap: () => showLicensePage(context: context, applicationName: 'Relay'),
               ),
             ],

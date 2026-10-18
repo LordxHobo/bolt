@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+/// Short commit id of this build (set by CI), shown in Settings and on the
+/// startup error screen so it's clear which build is installed.
+const relayBuild = String.fromEnvironment('RELAY_BUILD', defaultValue: 'dev');
+
 enum StreamPlatform { twitch, kick }
 
 extension StreamPlatformX on StreamPlatform {
