@@ -1,4 +1,4 @@
-name: relay
+name: duplex
 description: Watch Twitch and Kick in one app, with 7TV emotes and TwitchAdSolutions ad blocking.
 publish_to: "none"
 version: 1.0.0+1

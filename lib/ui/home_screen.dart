@@ -215,7 +215,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Relay', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: const Text('Duplex', style: TextStyle(fontWeight: FontWeight.w800)),
         actions: [
           IconButton(
             tooltip: 'Settings',

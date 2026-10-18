@@ -13,11 +13,11 @@ Future<void> main() async {
   });
   await Services.init();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  runApp(const RelayApp());
+  runApp(const DuplexApp());
 }
 
-class RelayApp extends StatelessWidget {
-  const RelayApp({super.key});
+class DuplexApp extends StatelessWidget {
+  const DuplexApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +27,7 @@ class RelayApp extends StatelessWidget {
       surface: const Color(0xFF0E0E10),
     );
     return MaterialApp(
-      title: 'Relay',
+      title: 'Duplex',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: scheme,

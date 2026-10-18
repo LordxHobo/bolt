@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:relay/chat/chat_models.dart';
-import 'package:relay/core/models.dart';
-import 'package:relay/kick/kick_api.dart';
-import 'package:relay/twitch/twitch_chat.dart';
+import 'package:duplex/chat/chat_models.dart';
+import 'package:duplex/core/models.dart';
+import 'package:duplex/kick/kick_api.dart';
+import 'package:duplex/twitch/twitch_chat.dart';
 
 void main() {
   test('IRC PRIVMSG with tags parses', () {

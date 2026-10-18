@@ -1,4 +1,4 @@
-# Relay
+# Duplex
 
 A phone app (Android + iOS) for watching **Twitch and Kick** in one place, with
 **7TV emotes** in chat and **TwitchAdSolutions** ad blocking on Twitch.
@@ -16,7 +16,7 @@ A phone app (Android + iOS) for watching **Twitch and Kick** in one place, with
 
 ## How the ad blocking works
 
-The Twitch player runs in a WebView. Before Twitch's page code runs, Relay
+The Twitch player runs in a WebView. Before Twitch's page code runs, Duplex
 injects a TwitchAdSolutions userscript, which swaps ad segments for an ad-free
 backup stream (see the upstream repo for details). You choose the script in
 Settings → Twitch ad blocking:
@@ -40,14 +40,14 @@ servers.
 1. Create an empty repository on GitHub (private is fine) and push this folder
    to it. The folder is already a git repository with one commit:
    ```sh
-   git remote add origin https://github.com/<you>/relay.git
+   git remote add origin https://github.com/<you>/duplex.git
    git push -u origin main
    ```
 2. Open the repo's **Actions** tab. The **Build** workflow starts on every push
    to `main`; you can also run it by hand with **Run workflow**.
 3. When it finishes, download the artifacts at the bottom of the run page:
-   - `relay-android` → `app-release.apk`
-   - `relay-ios` → `relay-unsigned.ipa`
+   - `duplex-android` → `app-release.apk`
+   - `duplex-ios` → `duplex-unsigned.ipa`
 
 Private repos get free GitHub Actions minutes each month; macOS minutes count
 10×, and one iOS build takes roughly 10–15 minutes.
@@ -58,7 +58,7 @@ The IPA is unsigned, so a sideloading tool signs it with your Apple ID:
 
 1. Install **[Sideloadly](https://sideloadly.io)** (Windows or macOS) or
    **[AltStore](https://altstore.io)** (AltServer runs on Windows).
-2. Plug in your iPhone, drag `relay-unsigned.ipa` into the tool, sign in with
+2. Plug in your iPhone, drag `duplex-unsigned.ipa` into the tool, sign in with
    your Apple ID, and install.
 3. On the phone, turn on **Settings → Privacy & Security → Developer Mode**
    when iOS asks, and trust your Apple ID under
@@ -83,15 +83,15 @@ uninstall the old version first. To avoid that, add your own signing key
 Watching and reading chat work without any setup. Logging in (to send chat
 messages, and to see the Twitch channels you follow) needs your own free
 developer apps, because Twitch and Kick both require one. You then paste the
-IDs into **Settings → Developer apps** in Relay.
+IDs into **Settings → Developer apps** in Duplex.
 
 ### Twitch
 
 1. Go to <https://dev.twitch.tv/console/apps> → **Register Your Application**.
 2. Name: anything. OAuth Redirect URL: `http://localhost`.
    Category: Application Integration. **Client Type: Public.**
-3. Copy the **Client ID** into Relay → Settings → Twitch Client ID.
-4. Tap **Log in** next to Twitch. Relay shows a code; open twitch.tv/activate,
+3. Copy the **Client ID** into Duplex → Settings → Twitch Client ID.
+4. Tap **Log in** next to Twitch. Duplex shows a code; open twitch.tv/activate,
    enter it, and approve.
 
 Public apps have no client secret, so nothing secret is stored in the app.
@@ -103,7 +103,7 @@ Public apps have no client secret, so nothing secret is stored in the app.
 2. Go to <https://kick.com/settings/developer> and create an app.
    Redirect URL: `http://localhost/auth/callback`.
    Enable the `user:read` and `chat:write` scopes.
-3. Copy the **Client ID** and **Client Secret** into Relay → Settings.
+3. Copy the **Client ID** and **Client Secret** into Duplex → Settings.
 4. Tap **Log in** next to Kick and sign in on the page that opens.
 
 The Kick client secret is stored in the phone's secure storage (Keychain /
@@ -114,7 +114,7 @@ Android Keystore).
 With Flutter 3.47 or newer installed:
 
 ```sh
-flutter create --platforms=android,ios --org io.github.relayapp --project-name relay .
+flutter create --platforms=android,ios --org io.github.duplexapp --project-name duplex .
 dart run tool/configure_platforms.dart
 flutter run
 ```
@@ -125,10 +125,10 @@ existing `lib/` code.
 ## Known limits
 
 - **Kick chat** moved from Pusher to Kick's own Centrifugo server on
-  2026-10-13. Relay uses the new connection flow the Kick website uses; it's
+  2026-10-13. Duplex uses the new connection flow the Kick website uses; it's
   not an official API, so it may change again.
 - **Kick's website API** (channel info, playback URL, chat history) is behind
-  Cloudflare. When Cloudflare blocks a plain request, Relay repeats it inside a
+  Cloudflare. When Cloudflare blocks a plain request, Duplex repeats it inside a
   hidden WebView with kick.com open, which behaves like a normal browser.
 - Kick has no quality picker yet (the player adapts automatically). Twitch's
   player has its own quality menu.

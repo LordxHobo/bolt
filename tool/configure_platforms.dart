@@ -1,11 +1,11 @@
-// Applies the few native settings Relay needs on top of the android/ and ios/
+// Applies the few native settings Duplex needs on top of the android/ and ios/
 // folders that `flutter create` generates. Safe to run more than once.
 //
-//   flutter create --platforms=android,ios --org io.github.relayapp --project-name relay .
+//   flutter create --platforms=android,ios --org io.github.duplexapp --project-name duplex .
 //   dart run tool/configure_platforms.dart
 import 'dart:io';
 
-const appName = 'Relay';
+const appName = 'Duplex';
 
 void main() {
   _android();

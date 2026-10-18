@@ -220,7 +220,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: const Text('Credits and licenses'),
                 subtitle: const Text(
                     'Ad blocking: TwitchAdSolutions (MIT). Emotes: 7TV. Not affiliated with Twitch or Kick.'),
-                onTap: () => showLicensePage(context: context, applicationName: 'Relay'),
+                onTap: () => showLicensePage(context: context, applicationName: 'Duplex'),
               ),
             ],
           ),
