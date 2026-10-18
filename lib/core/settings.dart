@@ -1,0 +1,139 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'models.dart';
+
+const secureStorage = FlutterSecureStorage();
+
+/// Which TwitchAdSolutions-style script is injected into the Twitch player.
+enum AdBlockScript {
+  vaft('vaft (bundled)', 'TwitchAdSolutions vaft 37.0.0, shipped with the app.'),
+  vaftFork('vaft fork (online)',
+      'Community-maintained fork of vaft, downloaded from GitHub and cached.'),
+  videoSwapNew('video-swap-new (bundled)',
+      'TwitchAdSolutions video-swap-new 1.55, shipped with the app.'),
+  custom('Custom URL', 'Any userscript URL, downloaded and cached.'),
+  off('Off', 'No ad blocking.');
+
+  const AdBlockScript(this.label, this.description);
+  final String label;
+  final String description;
+}
+
+class Settings extends ChangeNotifier {
+  late SharedPreferences _prefs;
+
+  static const defaultKickRedirect = 'http://localhost/auth/callback';
+
+  String twitchClientId = '';
+  String kickClientId = '';
+  String kickClientSecret = '';
+  String kickRedirectUri = defaultKickRedirect;
+
+  AdBlockScript adBlock = AdBlockScript.vaft;
+  String customScriptUrl = '';
+
+  double chatTextScale = 1.0;
+  bool showTimestamps = false;
+  bool landscapeChat = true;
+
+  List<ChannelRef> favorites = [];
+
+  Future<void> load() async {
+    _prefs = await SharedPreferences.getInstance();
+    twitchClientId = _prefs.getString('twitchClientId') ?? '';
+    kickClientId = _prefs.getString('kickClientId') ?? '';
+    kickRedirectUri = _prefs.getString('kickRedirectUri') ?? defaultKickRedirect;
+    try {
+      kickClientSecret = await secureStorage.read(key: 'kickClientSecret') ?? '';
+    } catch (_) {
+      kickClientSecret = '';
+    }
+    final adName = _prefs.getString('adBlock');
+    adBlock = AdBlockScript.values.firstWhere((a) => a.name == adName,
+        orElse: () => AdBlockScript.vaft);
+    customScriptUrl = _prefs.getString('customScriptUrl') ?? '';
+    chatTextScale = _prefs.getDouble('chatTextScale') ?? 1.0;
+    showTimestamps = _prefs.getBool('showTimestamps') ?? false;
+    landscapeChat = _prefs.getBool('landscapeChat') ?? true;
+    final favJson = _prefs.getString('favorites');
+    if (favJson != null) {
+      try {
+        favorites = (jsonDecode(favJson) as List)
+            .map((e) => ChannelRef.fromJson((e as Map).cast<String, dynamic>()))
+            .toList();
+      } catch (_) {
+        favorites = [];
+      }
+    }
+  }
+
+  SharedPreferences get prefs => _prefs;
+
+  Future<void> setTwitchClientId(String v) async {
+    twitchClientId = v.trim();
+    await _prefs.setString('twitchClientId', twitchClientId);
+    notifyListeners();
+  }
+
+  Future<void> setKickCredentials({
+    required String clientId,
+    required String clientSecret,
+    required String redirectUri,
+  }) async {
+    kickClientId = clientId.trim();
+    kickClientSecret = clientSecret.trim();
+    kickRedirectUri =
+        redirectUri.trim().isEmpty ? defaultKickRedirect : redirectUri.trim();
+    await _prefs.setString('kickClientId', kickClientId);
+    await _prefs.setString('kickRedirectUri', kickRedirectUri);
+    await secureStorage.write(key: 'kickClientSecret', value: kickClientSecret);
+    notifyListeners();
+  }
+
+  Future<void> setAdBlock(AdBlockScript v) async {
+    adBlock = v;
+    await _prefs.setString('adBlock', v.name);
+    notifyListeners();
+  }
+
+  Future<void> setCustomScriptUrl(String v) async {
+    customScriptUrl = v.trim();
+    await _prefs.setString('customScriptUrl', customScriptUrl);
+    notifyListeners();
+  }
+
+  Future<void> setChatTextScale(double v) async {
+    chatTextScale = v;
+    await _prefs.setDouble('chatTextScale', v);
+    notifyListeners();
+  }
+
+  Future<void> setShowTimestamps(bool v) async {
+    showTimestamps = v;
+    await _prefs.setBool('showTimestamps', v);
+    notifyListeners();
+  }
+
+  Future<void> setLandscapeChat(bool v) async {
+    landscapeChat = v;
+    await _prefs.setBool('landscapeChat', v);
+    notifyListeners();
+  }
+
+  bool isFavorite(ChannelRef ref) => favorites.contains(ref);
+
+  Future<void> toggleFavorite(ChannelRef ref) async {
+    if (favorites.contains(ref)) {
+      favorites = [...favorites]..remove(ref);
+    } else {
+      favorites = [...favorites, ref];
+    }
+    await _prefs.setString(
+        'favorites', jsonEncode(favorites.map((f) => f.toJson()).toList()));
+    notifyListeners();
+  }
+}
