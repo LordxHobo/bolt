@@ -1,4 +1,4 @@
-# Builds Duplex for Android (APK) and iOS (unsigned IPA for sideloading).
+# Builds Relay for Android (APK) and iOS (unsigned IPA for sideloading).
 # Runs on every push to main, and on demand from the Actions tab.
 name: Build
 
@@ -31,7 +31,7 @@ jobs:
       - name: Generate platform folders
         run: |
           if [ ! -d android ]; then
-            flutter create --platforms=android --org io.github.duplexapp --project-name duplex .
+            flutter create --platforms=android --org io.github.relayapp --project-name relay .
           fi
           dart run tool/configure_platforms.dart
 
@@ -47,7 +47,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: duplex-android
+          name: relay-android
           path: build/app/outputs/flutter-apk/app-release.apk
 
   ios:
@@ -69,7 +69,7 @@ jobs:
       - name: Generate platform folders
         run: |
           if [ ! -d ios ]; then
-            flutter create --platforms=ios --org io.github.duplexapp --project-name duplex .
+            flutter create --platforms=ios --org io.github.relayapp --project-name relay .
           fi
           dart run tool/configure_platforms.dart
 
@@ -82,9 +82,9 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/ios/iphoneos/Runner.app Payload/
-          zip -qr duplex-unsigned.ipa Payload
+          zip -qr relay-unsigned.ipa Payload
 
       - uses: actions/upload-artifact@v4
         with:
-          name: duplex-ios
-          path: duplex-unsigned.ipa
+          name: relay-ios
+          path: relay-unsigned.ipa
