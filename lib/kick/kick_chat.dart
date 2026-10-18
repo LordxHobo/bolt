@@ -17,7 +17,7 @@ import 'kick_web.dart';
 /// server instead of Pusher:
 ///   1. POST web.kick.com/api/v1/realtime/connection  -> server URL
 ///   2. POST web.kick.com/api/v1/realtime/auth/connection -> JWT (~45 min)
-///   3. {connect:{token}} then {subscribe:{channel:'chatrooms.<id>.v2'}}
+///   3. `{connect:{token}}` then `{subscribe:{channel:'chatrooms.<id>.v2'}}`
 /// Publications carry the same {event, data} envelope Pusher used to.
 class KickChatClient implements ChatClient {
   KickChatClient({

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show Color;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../chat/chat_models.dart';
