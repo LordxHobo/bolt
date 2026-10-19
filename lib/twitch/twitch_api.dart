@@ -113,6 +113,35 @@ class TwitchGql {
 
 /// The official Helix API, used for things that need the user's login.
 class TwitchHelix {
+  /// Logins of every channel the user follows (live or not), newest first.
+  static Future<List<String>> getFollowedLogins({
+    required String clientId,
+    required String accessToken,
+    required String userId,
+    int max = 2000,
+  }) async {
+    final out = <String>[];
+    String? cursor;
+    do {
+      final uri = Uri.https('api.twitch.tv', '/helix/channels/followed', {
+        'user_id': userId,
+        'first': '100',
+        if (cursor != null) 'after': cursor,
+      });
+      final res = await httpClient.get(uri, headers: {
+        'Client-Id': clientId,
+        'Authorization': 'Bearer $accessToken',
+      });
+      final json = jMap(decodeJson(res, 'Loading followed channels'));
+      for (final f in jList(json?['data'])) {
+        final login = jStr(jMap(f)?['broadcaster_login']);
+        if (login != null) out.add(login);
+      }
+      cursor = jStr(jMap(json?['pagination'])?['cursor']);
+    } while (cursor != null && out.length < max);
+    return out;
+  }
+
   /// Live channels the logged-in user follows.
   static Future<List<ChannelInfo>> getFollowedLive({
     required String clientId,

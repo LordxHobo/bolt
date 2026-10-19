@@ -96,16 +96,71 @@ class KickWeb {
         mediaPlaybackRequiresUserGesture: true,
       ),
       onWebViewCreated: (controller) => _controller = controller,
+      // Complete whichever load is pending (the first one, or a reloadPage()).
       onLoadStop: (controller, url) {
         _controller = controller;
-        if (!ready.isCompleted) ready.complete();
+        final pending = _ready;
+        if (pending != null && !pending.isCompleted) pending.complete();
       },
       onReceivedError: (controller, request, error) {
-        if (request.isForMainFrame == true && !ready.isCompleted) ready.complete();
+        final pending = _ready;
+        if (request.isForMainFrame == true && pending != null && !pending.isCompleted) {
+          pending.complete();
+        }
       },
     );
     await _headless!.run();
     await ready.future.timeout(const Duration(seconds: 30), onTimeout: () {});
+  }
+
+  /// Reloads the hidden kick.com page, e.g. after signing in, so it picks up
+  /// the new login cookies.
+  Future<void> reloadPage() async {
+    final controller = _controller;
+    if (controller == null) return;
+    final ready = Completer<void>();
+    _ready = ready;
+    await controller.reload();
+    await ready.future.timeout(const Duration(seconds: 20), onTimeout: () {});
+  }
+
+  /// GET [url] as the signed-in kick.com user (website login, not the
+  /// developer-app login). Always runs inside the kick.com page so the
+  /// session cookie applies; the site also expects it as a Bearer token.
+  Future<KickResponse> getSignedIn(String url) async {
+    KickResponse last = const KickResponse(0, '');
+    for (var attempt = 0; attempt < 3; attempt++) {
+      await _ensureWebView();
+      final controller = _controller;
+      if (controller == null) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        continue;
+      }
+      try {
+        final result = await controller.callAsyncJavaScript(
+          functionBody: '''
+            const m = document.cookie.match(/(?:^|; )session_token=([^;]+)/);
+            const headers = { 'Accept': 'application/json' };
+            if (m) headers['Authorization'] = 'Bearer ' + decodeURIComponent(m[1]);
+            const r = await fetch(url, { headers: headers, credentials: 'include' });
+            return { status: r.status, body: await r.text(), signedIn: !!m };
+          ''',
+          arguments: {'url': url},
+        );
+        final value = result?.value;
+        if (value is Map) {
+          last = KickResponse(
+            (value['status'] as num?)?.toInt() ?? 0,
+            value['body']?.toString() ?? '',
+          );
+          if (!_blocked(last) || last.status == 401) return last;
+        }
+      } catch (e) {
+        debugPrint('Kick signed-in fetch threw: $e');
+      }
+      await Future<void>.delayed(Duration(seconds: 2 + attempt * 2));
+    }
+    return last;
   }
 
   Future<KickResponse> _viaWebView(String url, String method, Object? jsonBody) async {

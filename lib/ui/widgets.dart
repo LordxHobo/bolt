@@ -75,6 +75,7 @@ class ChannelTile extends StatelessWidget {
     this.onLongPress,
     this.isFavorite = false,
     this.loading = false,
+    this.alsoOn,
   });
 
   final ChannelInfo info;
@@ -82,6 +83,9 @@ class ChannelTile extends StatelessWidget {
   final VoidCallback? onLongPress;
   final bool isFavorite;
   final bool loading;
+
+  /// Set when this streamer is also followed on the other platform.
+  final StreamPlatform? alsoOn;
 
   @override
   Widget build(BuildContext context) {
@@ -128,6 +132,10 @@ class ChannelTile extends StatelessWidget {
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                       ),
+                      if (alsoOn != null) ...[
+                        const SizedBox(width: 6),
+                        PlatformBadge(alsoOn!, compact: true),
+                      ],
                       if (isFavorite) ...[
                         const SizedBox(width: 4),
                         Icon(Icons.star_rounded, size: 15, color: Colors.amber.shade400),

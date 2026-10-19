@@ -27,6 +27,11 @@ void _android() {
     );
   }
   s = s.replaceFirst(RegExp(r'android:label="[^"]*"'), 'android:label="$appName"');
+  // The player streams from Relay's own relay at http://127.0.0.1, which
+  // Android blocks by default (no HTTPS on the phone's loopback).
+  if (!s.contains('usesCleartextTraffic')) {
+    s = s.replaceFirst('<application', '<application\n        android:usesCleartextTraffic="true"');
+  }
   // Use the older Skia renderer on Android. Impeller (the default) shows a
   // blank screen on some emulators such as BlueStacks. Ignored if unsupported.
   if (!s.contains('EnableImpeller')) {
@@ -93,6 +98,20 @@ void _ios() {
     RegExp(r'(<key>CFBundleDisplayName</key>\s*<string>)[^<]*(</string>)'),
     (m) => '${m.group(1)}$appName${m.group(2)}',
   );
+  // Allow the video player to load from Relay's local relay (http://127.0.0.1).
+  if (!s.contains('NSAppTransportSecurity')) {
+    s = s.replaceFirst(
+      RegExp(r'</dict>\s*</plist>\s*$'),
+      '\t<key>NSAppTransportSecurity</key>\n'
+      '\t<dict>\n'
+      '\t\t<key>NSAllowsLocalNetworking</key>\n'
+      '\t\t<true/>\n'
+      '\t\t<key>NSAllowsArbitraryLoadsForMedia</key>\n'
+      '\t\t<true/>\n'
+      '\t</dict>\n'
+      '</dict>\n</plist>\n',
+    );
+  }
   plist.writeAsStringSync(s);
   stdout.writeln('Patched ${plist.path}');
 }

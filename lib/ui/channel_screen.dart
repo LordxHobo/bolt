@@ -11,7 +11,9 @@ import '../core/services.dart';
 import '../kick/kick_api.dart';
 import '../twitch/twitch_api.dart';
 import 'chat_view.dart';
-import 'kick_player.dart';
+import '../core/settings.dart';
+import '../player/sources.dart';
+import 'live_player.dart';
 import 'twitch_player.dart';
 import 'widgets.dart';
 
@@ -28,11 +30,14 @@ class ChannelScreen extends StatefulWidget {
 class _ChannelScreenState extends State<ChannelScreen> {
   // Global keys let the players survive the portrait <-> landscape re-layout
   // without reloading the stream.
-  final _twitchKey = GlobalKey<TwitchPlayerState>();
-  final _kickKey = GlobalKey<KickPlayerState>();
+  final _webKey = GlobalKey<TwitchPlayerState>();
+  final _liveKey = GlobalKey<LivePlayerState>();
 
   ChannelInfo? _info;
   bool _loaded = false;
+
+  /// True once the channel lookup succeeded (so `isLive` can be trusted).
+  bool _lookupOk = false;
   String? _error;
   ChatController? _chat;
   Timer? _infoTimer;
@@ -72,6 +77,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       setState(() {
         _info = info;
         _loaded = true;
+        _lookupOk = true;
         _error = null;
       });
       if (_chat == null) {
@@ -98,11 +104,15 @@ class _ChannelScreenState extends State<ChannelScreen> {
     }
   }
 
+  bool get _useWebPlayer =>
+      ref.platform == StreamPlatform.twitch &&
+      Services.settings.twitchPlayer == TwitchPlayerMode.web;
+
   void _reloadPlayer() {
-    if (ref.platform == StreamPlatform.twitch) {
-      _twitchKey.currentState?.reload();
+    if (_useWebPlayer) {
+      _webKey.currentState?.reload();
     } else {
-      _kickKey.currentState?.reload();
+      _liveKey.currentState?.reload();
     }
   }
 
@@ -123,8 +133,19 @@ class _ChannelScreenState extends State<ChannelScreen> {
   }
 
   Widget _player() {
+    if (_useWebPlayer) {
+      return TwitchPlayer(key: _webKey, login: ref.login);
+    }
     if (ref.platform == StreamPlatform.twitch) {
-      return TwitchPlayer(key: _twitchKey, login: ref.login);
+      final blockAds = Services.settings.relayAdBlock;
+      return LivePlayer(
+        key: _liveKey,
+        sourceKey: 'twitch:${ref.login}:$blockAds:${Services.settings.lowLatency}',
+        // Only trust "offline" when the lookup actually succeeded; the player
+        // finds out by itself otherwise.
+        isLive: !_lookupOk || (_info?.isLive ?? true),
+        createSource: () => TwitchSource(ref.login, blockAds: blockAds),
+      );
     }
     final info = _info;
     if (!_loaded || info == null) {
@@ -137,7 +158,13 @@ class _ChannelScreenState extends State<ChannelScreen> {
         ),
       );
     }
-    return KickPlayer(key: _kickKey, playbackUrl: info.playbackUrl, isLive: info.isLive);
+    final playbackUrl = info.playbackUrl;
+    return LivePlayer(
+      key: _liveKey,
+      sourceKey: 'kick:${playbackUrl ?? ''}:${Services.settings.lowLatency}',
+      isLive: info.isLive && playbackUrl != null,
+      createSource: () => KickSource(playbackUrl!),
+    );
   }
 
   Widget _chatArea() {

@@ -60,6 +60,19 @@ enum AdBlockScript {
   final String description;
 }
 
+/// Which player Relay uses for Twitch.
+enum TwitchPlayerMode {
+  relay('Relay player', 'Recommended. Native playback, close to live, ads removed by Relay.'),
+  web('Twitch web player', "Twitch's own player in a web view, with the script below.");
+
+  const TwitchPlayerMode(this.label, this.description);
+  final String label;
+  final String description;
+}
+
+/// The home screen views from the menu.
+enum HomeView { favorites, following, kick, twitch }
+
 class Settings extends ChangeNotifier {
   late SharedPreferences _prefs;
 
@@ -72,6 +85,13 @@ class Settings extends ChangeNotifier {
 
   AdBlockScript adBlock = AdBlockScript.vaft;
   String customScriptUrl = '';
+
+  TwitchPlayerMode twitchPlayer = TwitchPlayerMode.relay;
+  bool relayAdBlock = true;
+  bool lowLatency = true;
+  bool showLatency = true;
+
+  HomeView homeView = HomeView.following;
 
   double chatTextScale = 1.0;
   bool showTimestamps = false;
@@ -97,6 +117,15 @@ class Settings extends ChangeNotifier {
     adBlock = AdBlockScript.values.firstWhere((a) => a.name == adName,
         orElse: () => AdBlockScript.vaft);
     customScriptUrl = _prefs.getString('customScriptUrl') ?? '';
+    final playerName = _prefs.getString('twitchPlayer');
+    twitchPlayer = TwitchPlayerMode.values.firstWhere((m) => m.name == playerName,
+        orElse: () => TwitchPlayerMode.relay);
+    relayAdBlock = _prefs.getBool('relayAdBlock') ?? true;
+    lowLatency = _prefs.getBool('lowLatency') ?? true;
+    showLatency = _prefs.getBool('showLatency') ?? true;
+    final viewName = _prefs.getString('homeView');
+    homeView = HomeView.values.firstWhere((v) => v.name == viewName,
+        orElse: () => HomeView.following);
     chatTextScale = _prefs.getDouble('chatTextScale') ?? 1.0;
     showTimestamps = _prefs.getBool('showTimestamps') ?? false;
     landscapeChat = _prefs.getBool('landscapeChat') ?? true;
@@ -113,6 +142,9 @@ class Settings extends ChangeNotifier {
   }
 
   SharedPreferences get prefs => _prefs;
+
+  /// For state stored directly in [prefs] by other parts of the app.
+  void notifyChanged() => notifyListeners();
 
   Future<void> setTwitchClientId(String v) async {
     twitchClientId = v.trim();
@@ -144,6 +176,36 @@ class Settings extends ChangeNotifier {
   Future<void> setCustomScriptUrl(String v) async {
     customScriptUrl = v.trim();
     await _prefs.setString('customScriptUrl', customScriptUrl);
+    notifyListeners();
+  }
+
+  Future<void> setTwitchPlayer(TwitchPlayerMode v) async {
+    twitchPlayer = v;
+    await _prefs.setString('twitchPlayer', v.name);
+    notifyListeners();
+  }
+
+  Future<void> setRelayAdBlock(bool v) async {
+    relayAdBlock = v;
+    await _prefs.setBool('relayAdBlock', v);
+    notifyListeners();
+  }
+
+  Future<void> setLowLatency(bool v) async {
+    lowLatency = v;
+    await _prefs.setBool('lowLatency', v);
+    notifyListeners();
+  }
+
+  Future<void> setShowLatency(bool v) async {
+    showLatency = v;
+    await _prefs.setBool('showLatency', v);
+    notifyListeners();
+  }
+
+  Future<void> setHomeView(HomeView v) async {
+    homeView = v;
+    await _prefs.setString('homeView', v.name);
     notifyListeners();
   }
 

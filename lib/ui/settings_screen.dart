@@ -7,7 +7,9 @@ import '../core/services.dart';
 import '../core/settings.dart';
 import '../twitch/adblock.dart';
 import '../twitch/twitch_auth.dart';
+import '../kick/kick_follows.dart';
 import 'kick_login_screen.dart';
+import 'kick_web_login_screen.dart';
 import 'widgets.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -128,6 +130,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? TextButton(onPressed: () => kick.logout(), child: const Text('Log out'))
                     : FilledButton(onPressed: _loginKick, child: const Text('Log in')),
               ),
+              ListTile(
+                leading: const _Logo(color: Color(0xFF53FC18), letter: 'K', dark: true),
+                title: const Text('kick.com (follow list)'),
+                subtitle: Text(KickFollows.isSignedIn
+                    ? 'Signed in. Your Kick follows show on the home screen'
+                    : 'Sign in on kick.com to see who you follow. Uses an unofficial endpoint, so it may break'),
+                isThreeLine: !KickFollows.isSignedIn,
+                trailing: KickFollows.isSignedIn
+                    ? TextButton(onPressed: KickFollows.signOut, child: const Text('Sign out'))
+                    : FilledButton(
+                        onPressed: () => Navigator.of(context).push<bool>(
+                          MaterialPageRoute(builder: (_) => const KickWebLoginScreen()),
+                        ),
+                        child: const Text('Sign in'),
+                      ),
+              ),
               const SectionHeader('Developer apps'),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -150,49 +168,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: FilledButton.tonal(onPressed: _saveCredentials, child: const Text('Save')),
                 ),
               ),
-              const SectionHeader('Twitch ad blocking'),
-              for (final option in AdBlockScript.values)
+              const SectionHeader('Player'),
+              for (final mode in TwitchPlayerMode.values)
                 ListTile(
                   leading: Icon(
-                    _settings.adBlock == option
+                    _settings.twitchPlayer == mode
                         ? Icons.radio_button_checked_rounded
                         : Icons.radio_button_unchecked_rounded,
-                    color: _settings.adBlock == option ? theme.colorScheme.primary : null,
+                    color: _settings.twitchPlayer == mode ? theme.colorScheme.primary : null,
                   ),
-                  title: Text(option.label),
-                  subtitle: Text(option.description),
-                  onTap: () => _settings.setAdBlock(option),
+                  title: Text(mode.label),
+                  subtitle: Text(mode.description),
+                  onTap: () => _settings.setTwitchPlayer(mode),
                 ),
-              if (_settings.adBlock == AdBlockScript.custom)
-                _field(_customUrl, 'Userscript URL',
-                    onSubmitted: (v) => _settings.setCustomScriptUrl(v)),
-              if (_settings.adBlock == AdBlockScript.vaftFork ||
-                  _settings.adBlock == AdBlockScript.custom)
-                ListTile(
-                  title: Text(cachedVersion == null
-                      ? 'Not downloaded yet'
-                      : 'Cached version $cachedVersion'),
-                  subtitle: const Text('The script refreshes itself in the background too.'),
-                  trailing: _updatingScript
-                      ? const SizedBox(
-                          width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                      : TextButton(
-                          onPressed: () async {
-                            if (_settings.adBlock == AdBlockScript.custom) {
-                              await _settings.setCustomScriptUrl(_customUrl.text);
-                            }
-                            await _updateScript();
-                          },
-                          child: const Text('Update now'),
-                        ),
-                ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                child: Text(
-                  'Changes apply the next time you open a Twitch stream.',
-                  style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                ),
+              SwitchListTile(
+                title: const Text('Low latency mode'),
+                subtitle: const Text(
+                    'Starts streams close to live and quietly catches up if playback falls behind.'),
+                value: _settings.lowLatency,
+                onChanged: (v) => _settings.setLowLatency(v),
               ),
+              SwitchListTile(
+                title: const Text('Show latency'),
+                subtitle: const Text('How many seconds behind live the stream is, shown on the video.'),
+                value: _settings.showLatency,
+                onChanged: (v) => _settings.setShowLatency(v),
+              ),
+              const SectionHeader('Twitch ad blocking'),
+              if (_settings.twitchPlayer == TwitchPlayerMode.relay)
+                SwitchListTile(
+                  title: const Text('Block Twitch ads'),
+                  subtitle: const Text(
+                      'During ad breaks Relay plays an ad-free copy of the stream, the way '
+                      "TwitchAdSolutions' vaft does. If none is available, the video waits until the break ends."),
+                  value: _settings.relayAdBlock,
+                  onChanged: (v) => _settings.setRelayAdBlock(v),
+                ),
+              if (_settings.twitchPlayer == TwitchPlayerMode.web) ...[
+                for (final option in AdBlockScript.values)
+                  ListTile(
+                    leading: Icon(
+                      _settings.adBlock == option
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: _settings.adBlock == option ? theme.colorScheme.primary : null,
+                    ),
+                    title: Text(option.label),
+                    subtitle: Text(option.description),
+                    onTap: () => _settings.setAdBlock(option),
+                  ),
+                if (_settings.adBlock == AdBlockScript.custom)
+                  _field(_customUrl, 'Userscript URL',
+                      onSubmitted: (v) => _settings.setCustomScriptUrl(v)),
+                if (_settings.adBlock == AdBlockScript.vaftFork ||
+                    _settings.adBlock == AdBlockScript.custom)
+                  ListTile(
+                    title: Text(cachedVersion == null
+                        ? 'Not downloaded yet'
+                        : 'Cached version $cachedVersion'),
+                    subtitle: const Text('The script refreshes itself in the background too.'),
+                    trailing: _updatingScript
+                        ? const SizedBox(
+                            width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                        : TextButton(
+                            onPressed: () async {
+                              if (_settings.adBlock == AdBlockScript.custom) {
+                                await _settings.setCustomScriptUrl(_customUrl.text);
+                              }
+                              await _updateScript();
+                            },
+                            child: const Text('Update now'),
+                          ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  child: Text(
+                    'Changes apply the next time you open a Twitch stream.',
+                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                  ),
+                ),
+              ],
               const SectionHeader('Chat'),
               ListTile(
                 title: const Text('Text size'),

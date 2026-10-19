@@ -4,11 +4,53 @@ import 'package:flutter/material.dart';
 
 import '../core/models.dart';
 import '../core/services.dart';
+import '../core/settings.dart';
 import '../kick/kick_api.dart';
+import '../kick/kick_follows.dart';
 import '../twitch/twitch_api.dart';
 import 'channel_screen.dart';
 import 'settings_screen.dart';
 import 'widgets.dart';
+
+extension on HomeView {
+  String get label => switch (this) {
+        HomeView.favorites => 'Favorites',
+        HomeView.following => 'Following',
+        HomeView.kick => 'Kick',
+        HomeView.twitch => 'Twitch',
+      };
+}
+
+/// One row on the home screen. [other] is set when the same streamer is
+/// followed on both platforms (a multistream); [primary] is the one that
+/// opens on tap.
+class _Entry {
+  _Entry(this.primary, [this.other]);
+  final ChannelInfo primary;
+  final ChannelInfo? other;
+
+  bool isFavorite(Settings s) =>
+      s.isFavorite(primary.ref) || (other != null && s.isFavorite(other!.ref));
+}
+
+/// Lowercase letters and digits only, so "some_name" on Twitch matches
+/// "some-name" on Kick.
+String _matchKey(String login) => login.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+/// Live favorites (most viewers first), other live channels (most viewers
+/// first), offline favorites, then everyone else, alphabetically.
+void _sortEntries(List<_Entry> list, Settings s) {
+  int rank(_Entry e) => e.primary.isLive ? (e.isFavorite(s) ? 0 : 1) : (e.isFavorite(s) ? 2 : 3);
+  list.sort((a, b) {
+    final r = rank(a).compareTo(rank(b));
+    if (r != 0) return r;
+    if (a.primary.isLive) {
+      final v = (b.primary.viewers ?? 0).compareTo(a.primary.viewers ?? 0);
+      if (v != 0) return v;
+    }
+    return a.primary.displayName.toLowerCase().compareTo(b.primary.displayName.toLowerCase());
+  });
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -17,22 +59,42 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+  late final AnimationController _menu = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  );
+  late HomeView _view = Services.settings.homeView;
+  StreamPlatform? _followFilter;
+
   final Map<String, ChannelInfo> _favoriteInfo = {};
-  List<ChannelInfo> _followedLive = [];
+  bool _favoritesLoaded = false;
+
+  List<ChannelInfo> _twitchFollows = [];
+  bool _twitchLoaded = false;
+  String? _twitchError;
+
+  List<ChannelInfo> _kickFollows = [];
+  bool _kickLoaded = false;
+  String? _kickError;
+  bool _kickExpired = false;
+
   bool _loading = false;
-  String? _followError;
+  bool _refreshAgain = false;
   Timer? _autoRefresh;
+
   List<ChannelRef> _lastFavorites = [];
   String? _lastTwitchLogin;
+  bool _lastKickSignedIn = false;
 
   @override
   void initState() {
     super.initState();
     _lastFavorites = Services.settings.favorites;
     _lastTwitchLogin = Services.twitch.login;
-    Services.settings.addListener(_onSettingsChanged);
-    Services.twitch.addListener(_onSettingsChanged);
+    _lastKickSignedIn = KickFollows.isSignedIn;
+    Services.settings.addListener(_onChanged);
+    Services.twitch.addListener(_onChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
     _autoRefresh = Timer.periodic(const Duration(minutes: 2), (_) => _refresh());
   }
@@ -40,24 +102,29 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _autoRefresh?.cancel();
-    Services.settings.removeListener(_onSettingsChanged);
-    Services.twitch.removeListener(_onSettingsChanged);
+    _menu.dispose();
+    Services.settings.removeListener(_onChanged);
+    Services.twitch.removeListener(_onChanged);
     super.dispose();
   }
 
-  void _onSettingsChanged() {
+  void _onChanged() {
     final favorites = Services.settings.favorites;
     final login = Services.twitch.login;
-    if (!identical(favorites, _lastFavorites) || login != _lastTwitchLogin) {
+    final kickSignedIn = KickFollows.isSignedIn;
+    if (!identical(favorites, _lastFavorites) ||
+        login != _lastTwitchLogin ||
+        kickSignedIn != _lastKickSignedIn) {
       _lastFavorites = favorites;
       _lastTwitchLogin = login;
+      _lastKickSignedIn = kickSignedIn;
       _refresh();
     } else if (mounted) {
       setState(() {});
     }
   }
 
-  bool _refreshAgain = false;
+  // ---------------------------------------------------------------- loading
 
   Future<void> _refresh() async {
     if (!mounted) return;
@@ -66,76 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     setState(() => _loading = true);
-    final favorites = Services.settings.favorites;
-    final twitchLogins = favorites
-        .where((f) => f.platform == StreamPlatform.twitch)
-        .map((f) => f.login)
-        .toList();
-    final kickSlugs = favorites
-        .where((f) => f.platform == StreamPlatform.kick)
-        .map((f) => f.login)
-        .toList();
-
-    final tasks = <Future<void>>[];
-
-    tasks.add(() async {
-      try {
-        final infos = await TwitchGql.getChannels(twitchLogins);
-        for (final i in infos) {
-          _favoriteInfo[i.ref.key] = i;
-        }
-      } catch (e) {
-        debugPrint('Twitch favorites failed: $e');
-      }
-    }());
-
-    for (final slug in kickSlugs) {
-      tasks.add(() async {
-        try {
-          final info = await KickApi.getChannel(slug);
-          if (info != null) _favoriteInfo[ChannelRef(StreamPlatform.kick, slug).key] = info;
-        } catch (e) {
-          debugPrint('Kick favorite $slug failed: $e');
-        }
-      }());
-    }
-
-    if (Services.twitch.isLoggedIn && Services.settings.twitchClientId.isNotEmpty) {
-      tasks.add(() async {
-        try {
-          final token = await Services.twitch.validAccessToken();
-          final userId = Services.twitch.userId;
-          if (token == null || userId == null) {
-            _followedLive = [];
-            return;
-          }
-          final followed = await TwitchHelix.getFollowedLive(
-            clientId: Services.settings.twitchClientId,
-            accessToken: token,
-            userId: userId,
-          );
-          // Helix doesn't include avatars; fetch them in one GQL request.
-          try {
-            final profiles = await TwitchGql.getChannels(
-                followed.map((f) => f.login).toList());
-            final avatars = {for (final p in profiles) p.login: p.avatarUrl};
-            _followedLive = [
-              for (final f in followed) f.copyWith(avatarUrl: avatars[f.login]),
-            ];
-          } catch (_) {
-            _followedLive = followed;
-          }
-          _followError = null;
-        } catch (e) {
-          _followError = 'Could not load followed channels: $e';
-        }
-      }());
-    } else {
-      _followedLive = [];
-      _followError = null;
-    }
-
-    await Future.wait(tasks);
+    await Future.wait([_loadFavorites(), _loadTwitchFollows(), _loadKickFollows()]);
     if (!mounted) return;
     setState(() => _loading = false);
     if (_refreshAgain) {
@@ -144,9 +142,113 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _open(ChannelRef ref, [ChannelInfo? info]) {
+  Future<void> _loadFavorites() async {
+    final favorites = Services.settings.favorites;
+    final twitchLogins = [
+      for (final f in favorites)
+        if (f.platform == StreamPlatform.twitch) f.login,
+    ];
+    final kickSlugs = [
+      for (final f in favorites)
+        if (f.platform == StreamPlatform.kick) f.login,
+    ];
+    final tasks = <Future<void>>[
+      () async {
+        try {
+          for (final i in await TwitchGql.getChannels(twitchLogins)) {
+            _favoriteInfo[i.ref.key] = i;
+          }
+        } catch (e) {
+          debugPrint('Twitch favorites failed: $e');
+        }
+      }(),
+      for (final slug in kickSlugs)
+        () async {
+          try {
+            final info = await KickApi.getChannel(slug);
+            if (info != null) _favoriteInfo[ChannelRef(StreamPlatform.kick, slug).key] = info;
+          } catch (e) {
+            debugPrint('Kick favorite $slug failed: $e');
+          }
+        }(),
+    ];
+    await Future.wait(tasks);
+    _favoritesLoaded = true;
+  }
+
+  Future<void> _loadTwitchFollows() async {
+    final twitch = Services.twitch;
+    final clientId = Services.settings.twitchClientId;
+    if (!twitch.isLoggedIn || clientId.isEmpty) {
+      _twitchFollows = [];
+      _twitchError = null;
+      _twitchLoaded = true;
+      return;
+    }
+    try {
+      final token = await twitch.validAccessToken();
+      final userId = twitch.userId;
+      if (token == null || userId == null) {
+        _twitchFollows = [];
+        _twitchError = 'Your Twitch login has expired. Log in again in Settings.';
+      } else {
+        final logins = await TwitchHelix.getFollowedLogins(
+          clientId: clientId,
+          accessToken: token,
+          userId: userId,
+        );
+        // Helix only lists names; one GQL lookup per 100 adds live status,
+        // viewers and avatars.
+        _twitchFollows = await TwitchGql.getChannels(logins);
+        _twitchError = null;
+      }
+    } catch (e) {
+      _twitchError = 'Could not load your Twitch follows: $e';
+    }
+    _twitchLoaded = true;
+  }
+
+  Future<void> _loadKickFollows() async {
+    if (!KickFollows.isSignedIn) {
+      _kickFollows = [];
+      _kickError = null;
+      _kickLoaded = true;
+      return;
+    }
+    try {
+      _kickFollows = await KickFollows.load();
+      _kickError = null;
+      _kickExpired = false;
+    } on KickSignedOutException {
+      _kickFollows = [];
+      _kickError = null;
+      _kickExpired = true;
+    } catch (e) {
+      _kickError = 'Could not load your Kick follows: $e';
+    }
+    _kickLoaded = true;
+  }
+
+  // ---------------------------------------------------------------- actions
+
+  void _toggleMenu() {
+    if (_menu.isDismissed || _menu.status == AnimationStatus.reverse) {
+      _menu.forward();
+    } else {
+      _menu.reverse();
+    }
+  }
+
+  void _select(HomeView view) {
+    _menu.reverse();
+    if (view == _view) return;
+    setState(() => _view = view);
+    Services.settings.setHomeView(view);
+  }
+
+  void _open(ChannelInfo info) {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ChannelScreen(channel: ref, initialInfo: info),
+      builder: (_) => ChannelScreen(channel: info.ref, initialInfo: info),
     ));
   }
 
@@ -163,6 +265,58 @@ class _HomeScreenState extends State<HomeScreen> {
       ));
   }
 
+  void _longPress(_Entry e) {
+    final other = e.other;
+    if (other == null) {
+      _toggleFavorite(e.primary.ref);
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) {
+        final both = [e.primary, other];
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final i in both)
+                ListTile(
+                  leading: PlatformBadge(i.platform),
+                  title: Text('Watch on ${i.platform.label}'),
+                  subtitle: Text(i.isLive
+                      ? '${formatViewers(i.viewers)} viewers'
+                      : 'Offline'),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _open(i);
+                  },
+                ),
+              const Divider(height: 8),
+              for (final i in both)
+                ListTile(
+                  leading: Icon(
+                    Services.settings.isFavorite(i.ref)
+                        ? Icons.star_rounded
+                        : Icons.star_outline_rounded,
+                    color: Colors.amber.shade400,
+                  ),
+                  title: Text(Services.settings.isFavorite(i.ref)
+                      ? 'Remove from favorites on ${i.platform.label}'
+                      : 'Favorite on ${i.platform.label}'),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    _toggleFavorite(i.ref);
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _showOpenDialog() async {
     final result = await showModalBottomSheet<(ChannelRef, bool)>(
       context: context,
@@ -175,139 +329,390 @@ class _HomeScreenState extends State<HomeScreen> {
     if (favorite) {
       if (!Services.settings.isFavorite(ref)) await Services.settings.toggleFavorite(ref);
     } else {
-      _open(ref);
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ChannelScreen(channel: ref),
+      ));
     }
   }
 
+  // ---------------------------------------------------------------- lists
+
+  List<_Entry> _favoriteEntries() {
+    final follows = {for (final i in [..._twitchFollows, ..._kickFollows]) i.ref.key: i};
+    final list = [
+      for (final f in Services.settings.favorites)
+        _Entry(follows[f.key] ?? _favoriteInfo[f.key] ?? ChannelInfo.placeholder(f)),
+    ];
+    _sortEntries(list, Services.settings);
+    return list;
+  }
+
+  List<_Entry> _platformEntries(List<ChannelInfo> follows) {
+    final list = [for (final i in follows) _Entry(i)];
+    _sortEntries(list, Services.settings);
+    return list;
+  }
+
+  List<_Entry> _followingEntries() {
+    if (_followFilter == StreamPlatform.twitch) return _platformEntries(_twitchFollows);
+    if (_followFilter == StreamPlatform.kick) return _platformEntries(_kickFollows);
+    // Same streamer on both platforms: one row, opening whichever side has
+    // more viewers (or is live).
+    final kickByKey = <String, ChannelInfo>{};
+    for (final k in _kickFollows) {
+      kickByKey.putIfAbsent(_matchKey(k.login), () => k);
+    }
+    final used = <String>{};
+    final list = <_Entry>[];
+    for (final t in _twitchFollows) {
+      final key = _matchKey(t.login);
+      final k = used.contains(key) ? null : kickByKey[key];
+      if (k == null) {
+        list.add(_Entry(t));
+        continue;
+      }
+      used.add(key);
+      final kickFirst = k.isLive != t.isLive
+          ? k.isLive
+          : (k.viewers ?? 0) > (t.viewers ?? 0);
+      list.add(kickFirst ? _Entry(k, t) : _Entry(t, k));
+    }
+    for (final k in _kickFollows) {
+      if (!used.contains(_matchKey(k.login))) list.add(_Entry(k));
+    }
+    _sortEntries(list, Services.settings);
+    return list;
+  }
+
+  // ---------------------------------------------------------------- notices
+
+  String? get _twitchNotice {
+    if (!Services.twitch.isLoggedIn) return 'Log in to Twitch in Settings to see who you follow there.';
+    return _twitchError;
+  }
+
+  String? get _kickNotice {
+    if (_kickError != null) return _kickError;
+    if (!KickFollows.isSignedIn) {
+      return _kickExpired
+          ? 'Your kick.com sign-in has expired. Sign in again in Settings.'
+          : 'Sign in to kick.com in Settings to see who you follow there.';
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------- build
+
   @override
   Widget build(BuildContext context) {
-    final favorites = Services.settings.favorites;
-    final favoriteKeys = favorites.map((f) => f.key).toSet();
-
-    // Merge favorites and Twitch follows, de-duplicated.
-    final live = <String, ChannelInfo>{};
-    for (final f in favorites) {
-      final info = _favoriteInfo[f.key];
-      if (info != null && info.isLive) live[f.key] = info;
-    }
-    for (final info in _followedLive) {
-      final existing = live[info.ref.key];
-      // Keep the favorite entry, but take the fresher numbers from Helix.
-      live[info.ref.key] = existing == null
-          ? info
-          : existing.copyWith(
-              isLive: true,
-              title: info.title,
-              category: info.category,
-              viewers: info.viewers,
-              thumbnailUrl: info.thumbnailUrl,
-            );
-    }
-    final liveList = live.values.toList()
-      ..sort((a, b) => (b.viewers ?? 0).compareTo(a.viewers ?? 0));
-    final offline = favorites
-        .where((f) => !live.containsKey(f.key))
-        .map((f) => _favoriteInfo[f.key] ?? ChannelInfo.placeholder(f))
-        .toList()
-      ..sort((a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
-
-    final empty = liveList.isEmpty && offline.isEmpty;
-
+    final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Relay', style: TextStyle(fontWeight: FontWeight.w800)),
-        actions: [
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
-          ),
-        ],
-        bottom: _loading
-            ? const PreferredSize(
-                preferredSize: Size.fromHeight(2),
-                child: LinearProgressIndicator(minHeight: 2),
-              )
-            : null,
-      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showOpenDialog,
         icon: const Icon(Icons.add),
         label: const Text('Channel'),
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: empty
-            ? ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 4, 0),
+              child: Row(
                 children: [
-                  if (_followError != null) _ErrorLine(_followError!),
-                  const _EmptyState(),
-                ],
-              )
-            : ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.only(bottom: 96),
-                children: [
-                  if (_followError != null) _ErrorLine(_followError!),
-                  if (liveList.isNotEmpty) SectionHeader('Live · ${liveList.length}'),
-                  for (final info in liveList)
-                    ChannelTile(
-                      info: info,
-                      isFavorite: favoriteKeys.contains(info.ref.key),
-                      onTap: () => _open(info.ref, info),
-                      onLongPress: () => _toggleFavorite(info.ref),
+                  Expanded(
+                    child: Text('Relay',
+                        style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                  ),
+                  IconButton(
+                    tooltip: 'Settings',
+                    icon: const Icon(Icons.settings_outlined),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
                     ),
-                  if (offline.isNotEmpty) const SectionHeader('Offline'),
-                  for (final info in offline)
-                    ChannelTile(
-                      info: info,
-                      isFavorite: true,
-                      loading: _loading && !_favoriteInfo.containsKey(info.ref.key),
-                      onTap: () => _open(info.ref, info),
-                      onLongPress: () => _toggleFavorite(info.ref),
-                    ),
+                  ),
                 ],
               ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 0, 16, 4),
+              child: Row(
+                children: [
+                  InkWell(
+                    onTap: _toggleMenu,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 6, 12, 6),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AnimatedIcon(
+                            icon: AnimatedIcons.menu_close,
+                            progress: _menu,
+                            semanticLabel: 'Menu',
+                          ),
+                          const SizedBox(width: 10),
+                          Text(_view.label,
+                              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_view == HomeView.following)
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Row(
+                  children: [
+                    for (final f in <StreamPlatform?>[null, StreamPlatform.twitch, StreamPlatform.kick])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(f?.label ?? 'All'),
+                          selected: _followFilter == f,
+                          onSelected: (_) => setState(() => _followFilter = f),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            SizedBox(
+              height: 2,
+              child: _loading ? const LinearProgressIndicator(minHeight: 2) : null,
+            ),
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(child: _buildList()),
+                  _buildMenu(theme),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMenu(ThemeData theme) {
+    return AnimatedBuilder(
+      animation: _menu,
+      builder: (context, _) {
+        if (_menu.isDismissed) return const SizedBox.shrink();
+        final t = Curves.easeOut.transform(_menu.value);
+        return Positioned.fill(
+          child: Stack(
+            children: [
+              // Tapping anywhere outside the menu closes it.
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _menu.reverse,
+                  child: ColoredBox(color: Colors.black.withValues(alpha: 0.35 * t)),
+                ),
+              ),
+              Positioned(
+                left: 12,
+                top: 4,
+                child: Opacity(
+                  opacity: t,
+                  child: Transform.translate(
+                    offset: Offset(0, -8 * (1 - t)),
+                    child: Transform.scale(
+                      scale: 0.94 + 0.06 * t,
+                      alignment: Alignment.topLeft,
+                      child: _menuCard(theme),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _menuCard(ThemeData theme) {
+    Widget leading(HomeView v) => switch (v) {
+          HomeView.favorites => Icon(Icons.star_rounded, color: Colors.amber.shade400),
+          HomeView.following => const Icon(Icons.favorite_rounded, color: Color(0xFFFF4D6D)),
+          HomeView.kick => const _PlatformMark(StreamPlatform.kick),
+          HomeView.twitch => const _PlatformMark(StreamPlatform.twitch),
+        };
+    return Material(
+      color: theme.colorScheme.surfaceContainerHigh,
+      elevation: 8,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicWidth(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final v in HomeView.values)
+                InkWell(
+                  onTap: () => _select(v),
+                  child: Container(
+                    color: v == _view ? theme.colorScheme.onSurface.withValues(alpha: 0.08) : null,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 28, 12),
+                    child: Row(
+                      children: [
+                        SizedBox(width: 24, child: Center(child: leading(v))),
+                        const SizedBox(width: 14),
+                        Text(v.label,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: v == _view ? FontWeight.w800 : FontWeight.w600,
+                            )),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildList() {
+    final settings = Services.settings;
+    late final List<_Entry> entries;
+    final notices = <String>[];
+    var loaded = true;
+    String emptyText = '';
+
+    switch (_view) {
+      case HomeView.favorites:
+        entries = _favoriteEntries();
+        loaded = _favoritesLoaded || entries.isEmpty;
+        emptyText = 'No favorites yet.\n\nLong-press any channel to favorite it, '
+            'or tap “Channel” to add one by name.';
+      case HomeView.twitch:
+        entries = _platformEntries(_twitchFollows);
+        loaded = _twitchLoaded;
+        if (_twitchNotice != null) notices.add(_twitchNotice!);
+        emptyText = Services.twitch.isLoggedIn ? 'You don’t follow anyone on Twitch yet.' : '';
+      case HomeView.kick:
+        entries = _platformEntries(_kickFollows);
+        loaded = _kickLoaded;
+        if (_kickNotice != null) notices.add(_kickNotice!);
+        emptyText = KickFollows.isSignedIn ? 'You don’t follow anyone on Kick yet.' : '';
+      case HomeView.following:
+        entries = _followingEntries();
+        if (_followFilter != StreamPlatform.kick) {
+          loaded = loaded && _twitchLoaded;
+          if (_twitchNotice != null) notices.add(_twitchNotice!);
+        }
+        if (_followFilter != StreamPlatform.twitch) {
+          loaded = loaded && _kickLoaded;
+          if (_kickNotice != null) notices.add(_kickNotice!);
+        }
+        emptyText = notices.isEmpty ? 'No followed channels yet.' : '';
+    }
+
+    final liveCount = entries.where((e) => e.primary.isLive).length;
+    final firstOffline = entries.indexWhere((e) => !e.primary.isLive);
+
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 96),
+        children: [
+          for (final n in notices) _Notice(n),
+          if (entries.isEmpty && !loaded)
+            const Padding(
+              padding: EdgeInsets.only(top: 80),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (entries.isEmpty && emptyText.isNotEmpty)
+            _EmptyState(emptyText),
+          if (liveCount > 0) SectionHeader('Live · $liveCount'),
+          for (var i = 0; i < entries.length; i++) ...[
+            if (i == firstOffline) const SectionHeader('Offline'),
+            ChannelTile(
+              info: entries[i].primary,
+              alsoOn: entries[i].other?.platform,
+              isFavorite: entries[i].isFavorite(settings),
+              loading: _loading &&
+                  _view == HomeView.favorites &&
+                  !_favoriteInfo.containsKey(entries[i].primary.ref.key),
+              onTap: () => _open(entries[i].primary),
+              onLongPress: () => _longPress(entries[i]),
+            ),
+          ],
+        ],
       ),
     );
   }
 }
 
-class _ErrorLine extends StatelessWidget {
-  const _ErrorLine(this.text);
-  final String text;
+class _PlatformMark extends StatelessWidget {
+  const _PlatformMark(this.platform);
+  final StreamPlatform platform;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        child: Text(text, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+  Widget build(BuildContext context) => Container(
+        width: 22,
+        height: 22,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: platform.color,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          platform.label[0],
+          style: TextStyle(color: platform.onColor, fontWeight: FontWeight.w900, fontSize: 13),
+        ),
       );
 }
 
+class _Notice extends StatelessWidget {
+  const _Notice(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline_rounded, size: 18, color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: theme.textTheme.bodySmall)),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  const _EmptyState(this.text);
+  final String text;
 
   @override
   Widget build(BuildContext context) {
     final muted = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(32, 96, 32, 32),
+      padding: const EdgeInsets.fromLTRB(32, 80, 32, 32),
       child: Column(
         children: [
           Icon(Icons.live_tv_rounded, size: 56, color: muted),
           const SizedBox(height: 16),
-          Text('No channels yet', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Text(
-            'Tap “Channel” to open a Twitch or Kick channel or add it to your '
-            'favorites. Log in to Twitch in Settings to see who you follow.\n\n'
-            'Long-press any channel to add or remove it from favorites.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: muted),
-          ),
+          Text(text, textAlign: TextAlign.center, style: TextStyle(color: muted)),
         ],
       ),
     );

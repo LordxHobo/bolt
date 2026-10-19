@@ -3,23 +3,47 @@
 A phone app (Android + iOS) for watching **Twitch and Kick** in one place, with
 **7TV emotes** in chat and **TwitchAdSolutions** ad blocking on Twitch.
 
-- Favorites from both platforms in one list, with live status, viewers and titles
-- Twitch: live channels you follow (after logging in)
-- Twitch playback through Twitch's own player, with TwitchAdSolutions' `vaft`
-  script injected at page start, the same way a userscript manager runs it
-- Kick playback through the native video player (ExoPlayer / AVPlayer)
+- Home screen menu: **Favorites**, **Following** (both platforms, with an
+  All / Twitch / Kick filter; multistreams show once), **Kick** and **Twitch**.
+  Live favorites come first, then by viewers. It reopens on the view you used last.
+- Twitch and Kick playback in the native video player (AVPlayer / ExoPlayer)
+  through Relay's local relay, which keeps you close to live and removes
+  Twitch ads (ported from TwitchAdSolutions' `vaft`)
+- Latency readout on the video and a low-latency mode that catches up
+  automatically (both in Settings → Player)
+- Twitch's own web player is still available as a fallback, with the
+  TwitchAdSolutions scripts injected
 - Native chat for both: 7TV global + channel emotes (including zero-width
   emotes), Twitch and Kick emotes, emote autocomplete, recent message history,
   deleted/banned message handling, pause-on-scroll
 - Log in and chat on Twitch and Kick
 - Landscape mode with a collapsible chat column
 
-## How the ad blocking works
+## How the player and ad blocking work
 
-The Twitch player runs in a WebView. Before Twitch's page code runs, Relay
-injects a TwitchAdSolutions userscript, which swaps ad segments for an ad-free
-backup stream (see the upstream repo for details). You choose the script in
-Settings → Twitch ad blocking:
+Relay runs a tiny HTTP server on the phone (127.0.0.1 only). The video player
+loads the stream from it, and Relay fetches the real playlists from Twitch or
+Kick and rewrites them:
+
+- **Lower latency.** Phones play Twitch's stock playlists about 15-20 s behind
+  live. Relay serves a short playlist with tight segment timing, adds Twitch's
+  early ("prefetch") segments, and in low-latency mode speeds playback up
+  slightly (1.1× or 1.25×) until you're back to about 3.5 s behind. Past 30 s
+  behind it reloads.
+- **Ad removal (Twitch).** This is the same idea as TwitchAdSolutions' `vaft`:
+  segments marked as ads are dropped and the gap is filled from an ad-free
+  backup stream (Twitch's embed/popout/autoplay players), matched by time. If
+  no backup is ad-free either, the player waits for the break to end
+  ("Ad break, waiting for the stream").
+- **Latency readout.** "Xs behind live" compares the segment timestamps at
+  your playback position with the server's clock.
+
+### Web player fallback
+
+Settings → Player → **Twitch web player** switches Twitch back to Twitch's own
+player in a WebView. Before Twitch's page code runs, Relay injects a
+TwitchAdSolutions userscript. You choose the script in Settings → Twitch ad
+blocking:
 
 | Option | What it is |
 | --- | --- |
@@ -109,6 +133,14 @@ Public apps have no client secret, so nothing secret is stored in the app.
 The Kick client secret is stored in the phone's secure storage (Keychain /
 Android Keystore).
 
+### Kick follow list
+
+Kick's official API can't list the channels you follow yet, so Relay uses the
+one kick.com's website uses. In Settings → **kick.com (follow list)**, tap
+**Sign in**, log in on the kick.com page, then tap **Done**. This is separate
+from the developer-app login above and needs no Client ID. It's unofficial,
+so it may stop working if Kick changes its site.
+
 ## Building locally (optional)
 
 With Flutter 3.47 or newer installed:
@@ -130,8 +162,11 @@ existing `lib/` code.
 - **Kick's website API** (channel info, playback URL, chat history) is behind
   Cloudflare. When Cloudflare blocks a plain request, Relay repeats it inside a
   hidden WebView with kick.com open, which behaves like a normal browser.
-- Kick has no quality picker yet (the player adapts automatically). Twitch's
-  player has its own quality menu.
+- The relay player picks the best quality by default; change it with the
+  quality button on the video. It doesn't switch quality by itself when your
+  connection drops.
+- Twitch ad removal hasn't been tested much against Twitch's newest ad
+  methods. If ads get through, try the web player fallback with the vaft fork.
 - No picture-in-picture or background audio yet.
 - Twitch chat badges are shown as simple icons (broadcaster, mod, VIP, sub)
   rather than Twitch's badge images.
@@ -145,6 +180,7 @@ lib/
   twitch/                   GQL/Helix API, device-code login, IRC chat, ad-block scripts
   kick/                     website API (+ Cloudflare fallback), OAuth login, Centrifugo chat
   chat/                     chat models, 7TV, chat controller
+  player/                   local relay: HLS parsing/stitching, Twitch/Kick sources
   ui/                       screens and widgets
 assets/adblock/             bundled TwitchAdSolutions scripts + MIT license
 assets/icon/                app icon (icon.png for iOS, icon_foreground.png for Android)
