@@ -37,6 +37,8 @@ class LiveProxy {
 
   /// The newest segment the current player finished downloading.
   StitchedSegment? _lastFetched;
+  int _segRequests = 0;
+  int _segCompleted = 0;
 
   /// Recent estimates of "stream time at player position 0" (microseconds
   /// since epoch), see [latencyFor].
@@ -91,6 +93,8 @@ class LiveProxy {
     _stitchers.clear();
     _lastFetched = null;
     _anchors.clear();
+    _segRequests = 0;
+    _segCompleted = 0;
     return Uri.parse('http://127.0.0.1:${_server!.port}/m/$_generation.m3u8');
   }
 
@@ -118,6 +122,24 @@ class LiveProxy {
     final seconds = (now - playhead) / 1000000;
     if (seconds < 0 || seconds > 120) return null;
     return seconds;
+  }
+
+  /// The raw numbers behind the latency readout, for troubleshooting.
+  String debugInfo(Duration position, Duration? bufferedEnd, double speed) {
+    String sec(num v) => v.toStringAsFixed(1);
+    final now = DateTime.now().toUtc().add(serverOffset);
+    String age(StitchedSegment? s) {
+      final pdt = s?.pdt;
+      if (s == null || pdt == null) return '-';
+      final end = pdt.add(Duration(microseconds: (s.duration * 1000000).round()));
+      return '#${s.seq} ${sec(now.difference(end).inMilliseconds / 1000)}s';
+    }
+    final newest = _stitchers[playingVariant]?.last;
+    return 'pos ${sec(position.inMilliseconds / 1000)} · '
+        'buf ${bufferedEnd == null ? '-' : sec(bufferedEnd.inMilliseconds / 1000)} · '
+        '${speed}x\n'
+        'got ${age(_lastFetched)} · newest ${age(newest)}\n'
+        'segments $_segCompleted/$_segRequests';
   }
 
   Future<void> close() async {
@@ -185,6 +207,7 @@ class LiveProxy {
     // previous one is complete (in case we never saw it finish).
     final previous = _stitchers[index]?.bySeq(seg.seq - 1);
     if (previous != null) _markFetched(gen, previous);
+    _segRequests++;
     var complete = false;
     try {
       final upstream = await _http.getUrl(seg.uri);
@@ -211,7 +234,10 @@ class LiveProxy {
         await response.close();
       } catch (_) {}
     }
-    if (complete) _markFetched(gen, seg);
+    if (complete) {
+      _segCompleted++;
+      _markFetched(gen, seg);
+    }
   }
 
   void _markFetched(int gen, StitchedSegment seg) {

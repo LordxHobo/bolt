@@ -41,7 +41,8 @@ class LivePlayerState extends State<LivePlayer> {
   final List<double> _recent = [];
   double _speed = 1.0;
   int _session = 0;
-  int _farBehind = 0;
+  bool _details = false;
+  String? _detailText;
 
   @override
   void initState() {
@@ -81,7 +82,7 @@ class LivePlayerState extends State<LivePlayer> {
       _latency = null;
       _recent.clear();
       _speed = 1.0;
-      _farBehind = 0;
+      _detailText = null;
     });
     try {
       var proxy = _proxy;
@@ -159,6 +160,9 @@ class LivePlayerState extends State<LivePlayer> {
       if (bufferedEnd == null || r.end > bufferedEnd) bufferedEnd = r.end;
     }
     final reading = proxy.latencyFor(position, bufferedEnd);
+    if (_details && mounted) {
+      setState(() => _detailText = proxy.debugInfo(position, bufferedEnd, _speed));
+    }
     if (reading == null) return;
     _recent.add(reading);
     if (_recent.length > 3) _recent.removeAt(0);
@@ -173,12 +177,9 @@ class LivePlayerState extends State<LivePlayer> {
     // while there's some to eat into; at the live edge it would just stall.
     final ahead = bufferedEnd == null ? 0.0 : (bufferedEnd - position).inMilliseconds / 1000;
     const target = 3.5;
-    _farBehind = latency > 30 ? _farBehind + 1 : 0;
-    if (_farBehind >= 5) {
-      // Way behind for a while (e.g. after a long stall): jump back to live.
-      _farBehind = 0;
-      reload();
-    } else if (ahead < 1.0 || latency <= target + 0.3) {
+    // No automatic reloads from this reading: if it's ever wrong, the worst
+    // case is a slightly faster playback for a moment, not a restart.
+    if (ahead < 1.0 || latency > 30 || latency <= target + 0.3) {
       _setSpeed(1.0);
     } else if (latency > target + 4) {
       _setSpeed(1.25);
@@ -283,12 +284,6 @@ class LivePlayerState extends State<LivePlayer> {
                     ),
                 },
               ),
-            if (Services.settings.showLatency && _latency != null)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: _Chip(text: '${_latency!.toStringAsFixed(1)}s behind live'),
-              ),
             AnimatedOpacity(
               opacity: _showControls ? 1 : 0,
               duration: const Duration(milliseconds: 200),
@@ -304,6 +299,27 @@ class LivePlayerState extends State<LivePlayer> {
                 ),
               ),
             ),
+            if (Services.settings.showLatency)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: GestureDetector(
+                  // Tap the readout for the raw numbers behind it.
+                  onTap: () => setState(() => _details = !_details),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _Chip(text: _latency == null
+                          ? 'Measuring latency…'
+                          : '${_latency!.toStringAsFixed(1)}s behind live'),
+                      if (_details && _detailText != null) ...[
+                        const SizedBox(height: 4),
+                        _Chip(text: _detailText!),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       );
