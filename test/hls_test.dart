@@ -88,6 +88,16 @@ ad.ts
       expect(s.render(), contains('#EXT-X-DISCONTINUITY-SEQUENCE:1'));
     });
 
+    test('finds served segments and rewrites their URIs', () {
+      final s = Stitcher(window: 2);
+      s.add([seg(0), seg(1), seg(2)]);
+      expect(s.bySeq(0)!.uri.toString(), 'https://cdn.example/main0.ts');
+      expect(s.bySeq(9), isNull);
+      final text = s.render(uriFor: (e) => Uri.parse('http://127.0.0.1:1/s/${e.seq}.ts'));
+      expect(text, contains('http://127.0.0.1:1/s/2.ts'));
+      expect(text, isNot(contains('cdn.example')));
+    });
+
     test('maps player position to stream time', () {
       final s = Stitcher(window: 2);
       s.add([seg(0), seg(1), seg(5), seg(6)]);

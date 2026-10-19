@@ -375,7 +375,19 @@ class Stitcher {
     return null;
   }
 
-  String render() {
+  /// A recently served segment by its sequence number.
+  StitchedSegment? bySeq(int seq) {
+    for (var i = _history.length - 1; i >= 0; i--) {
+      final h = _history[i];
+      if (h.seq == seq) return h;
+      if (h.seq < seq) break;
+    }
+    return null;
+  }
+
+  /// The playlist text. [uriFor] can point segments somewhere else (Relay
+  /// routes them through its local relay to see what the player downloads).
+  String render({Uri Function(StitchedSegment segment)? uriFor}) {
     final b = StringBuffer()
       ..writeln('#EXTM3U')
       ..writeln('#EXT-X-VERSION:6');
@@ -398,7 +410,7 @@ class Stitcher {
       if (pdt != null) b.writeln('#EXT-X-PROGRAM-DATE-TIME:${pdt.toUtc().toIso8601String()}');
       b
         ..writeln('#EXTINF:${s.duration.toStringAsFixed(3)},')
-        ..writeln(s.uri.toString());
+        ..writeln((uriFor == null ? s.uri : uriFor(s)).toString());
       prev = s;
     }
     return b.toString();

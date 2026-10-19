@@ -41,6 +41,7 @@ class LivePlayerState extends State<LivePlayer> {
   final List<double> _recent = [];
   double _speed = 1.0;
   int _session = 0;
+  int _farBehind = 0;
 
   @override
   void initState() {
@@ -80,6 +81,7 @@ class LivePlayerState extends State<LivePlayer> {
       _latency = null;
       _recent.clear();
       _speed = 1.0;
+      _farBehind = 0;
     });
     try {
       var proxy = _proxy;
@@ -151,7 +153,13 @@ class LivePlayerState extends State<LivePlayer> {
     final c = _controller;
     final proxy = _proxy;
     if (c == null || proxy == null || !c.value.isInitialized || !c.value.isPlaying) return;
-    final reading = proxy.latencyFor(c.value.position);
+    final position = c.value.position;
+    var bufferedEnd = Duration.zero;
+    for (final r in c.value.buffered) {
+      if (r.end > bufferedEnd) bufferedEnd = r.end;
+    }
+    if (bufferedEnd == Duration.zero) return;
+    final reading = proxy.latencyFor(position, bufferedEnd);
     if (reading == null) return;
     _recent.add(reading);
     if (_recent.length > 3) _recent.removeAt(0);
@@ -162,16 +170,21 @@ class LivePlayerState extends State<LivePlayer> {
       _setSpeed(1.0);
       return;
     }
+    // Seconds of video downloaded but not played yet. Speeding up only helps
+    // while there's some to eat into; at the live edge it would just stall.
+    final ahead = (bufferedEnd - position).inMilliseconds / 1000;
     const target = 3.5;
-    if (latency > 30) {
-      // Way behind (e.g. after a long stall): jump straight back to live.
+    _farBehind = latency > 30 ? _farBehind + 1 : 0;
+    if (_farBehind >= 5) {
+      // Way behind for a while (e.g. after a long stall): jump back to live.
+      _farBehind = 0;
       reload();
+    } else if (ahead < 1.0 || latency <= target + 0.3) {
+      _setSpeed(1.0);
     } else if (latency > target + 4) {
       _setSpeed(1.25);
     } else if (latency > target + 1.5) {
       _setSpeed(1.1);
-    } else if (latency <= target + 0.3) {
-      _setSpeed(1.0);
     }
   }
 

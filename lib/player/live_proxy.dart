@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/net.dart';
 import 'hls.dart';
 import 'sources.dart';
 
@@ -14,7 +15,9 @@ enum AdState { none, blocking, waiting }
 /// For every playlist request it fetches the real playlist, keeps only the
 /// segments worth playing (no ads, optionally Twitch's early "prefetch"
 /// segments so playback starts closer to live) and serves a clean playlist.
-/// Video segments themselves are loaded by the player straight from the CDN.
+/// Video segments are passed through too, so Relay knows exactly which part
+/// of the stream the player has downloaded (that's what the latency readout
+/// is based on).
 class LiveProxy {
   LiveProxy(this.source, {this.lowLatency = true});
 
@@ -27,6 +30,16 @@ class LiveProxy {
   final Map<int, Future<void>> _locks = {};
   int _generation = 0;
   bool _closed = false;
+
+  final HttpClient _http = HttpClient()
+    ..userAgent = browserUserAgent
+    ..connectionTimeout = const Duration(seconds: 10);
+
+  /// Segment downloads in progress, per player generation.
+  final Map<int, int> _downloading = {};
+
+  /// The newest segment the current player finished downloading.
+  StitchedSegment? _lastFetched;
 
   /// Index of the forced quality, or null for automatic.
   int? selectedVariant;
@@ -75,25 +88,28 @@ class LiveProxy {
     _generation++;
     // A fresh timeline for the new player instance.
     _stitchers.clear();
+    _lastFetched = null;
     return Uri.parse('http://127.0.0.1:${_server!.port}/m/$_generation.m3u8');
   }
 
-  /// "Seconds behind live" for a player at [position].
+  /// "Seconds behind live" for a player at [position] whose buffer reaches
+  /// [bufferedEnd].
   ///
-  /// iOS (AVPlayer) measures live positions from the first segment it was
-  /// given; Android (ExoPlayer) from the start of the current playlist.
-  double? latencyFor(Duration position) {
-    final stitcher = _stitchers[playingVariant];
-    if (stitcher == null || position == Duration.zero) return null;
-    var t = position.inMilliseconds / 1000;
-    if (defaultTargetPlatform != TargetPlatform.iOS) {
-      t += stitcher.windowStartTimeline ?? 0;
-    }
-    final playhead = stitcher.pdtAt(t);
-    if (playhead == null) return null;
+  /// The end of the newest downloaded segment is the end of the buffer, and
+  /// its timestamp is known, so: latency = age of that segment's end + how
+  /// much buffer is still ahead of the playhead. This doesn't depend on how
+  /// the player numbers its timeline (AVPlayer and ExoPlayer differ).
+  double? latencyFor(Duration position, Duration bufferedEnd) {
+    // While a segment is still arriving the buffer end is in between.
+    if ((_downloading[_generation] ?? 0) > 0) return null;
+    final seg = _lastFetched;
+    final pdt = seg?.pdt;
+    if (seg == null || pdt == null) return null;
+    final ahead = (bufferedEnd - position).inMilliseconds / 1000;
+    if (ahead < -0.5 || ahead > 120) return null;
+    final edge = pdt.add(Duration(microseconds: (seg.duration * 1000000).round()));
     final now = DateTime.now().toUtc().add(serverOffset);
-    final seconds = now.difference(playhead).inMilliseconds / 1000;
-    // Outside this range the estimate is clearly off (e.g. right after a seek).
+    final seconds = now.difference(edge).inMilliseconds / 1000 + (ahead < 0 ? 0 : ahead);
     if (seconds < 0 || seconds > 120) return null;
     return seconds;
   }
@@ -101,6 +117,7 @@ class LiveProxy {
   Future<void> close() async {
     _closed = true;
     adState.dispose();
+    _http.close(force: true);
     await _server?.close(force: true);
     _server = null;
   }
@@ -108,6 +125,10 @@ class LiveProxy {
   Future<void> _handle(HttpRequest request) async {
     try {
       final path = request.uri.path;
+      if (path.startsWith('/s/')) {
+        await _segment(request);
+        return;
+      }
       String? body;
       if (path.startsWith('/m/')) {
         body = renderMaster(
@@ -138,6 +159,56 @@ class LiveProxy {
     await request.response.close();
   }
 
+  /// Passes one video segment from the CDN to the player.
+  /// Path: /s/<generation>/<variant>/<seq>.<ext>
+  Future<void> _segment(HttpRequest request) async {
+    final response = request.response;
+    final parts = request.uri.pathSegments;
+    final gen = parts.length == 4 ? int.tryParse(parts[1]) : null;
+    final index = parts.length == 4 ? int.tryParse(parts[2]) : null;
+    final seq = parts.length == 4 ? int.tryParse(parts[3].split('.').first) : null;
+    final seg = (gen == _generation && index != null && seq != null)
+        ? _stitchers[index]?.bySeq(seq)
+        : null;
+    if (seg == null || gen == null) {
+      response.statusCode = HttpStatus.notFound;
+      await response.close();
+      return;
+    }
+    _downloading[gen] = (_downloading[gen] ?? 0) + 1;
+    var complete = false;
+    try {
+      final upstream = await _http.getUrl(seg.uri);
+      final range = request.headers.value(HttpHeaders.rangeHeader);
+      if (range != null) upstream.headers.set(HttpHeaders.rangeHeader, range);
+      final res = await upstream.close();
+      response.statusCode = res.statusCode;
+      final type = res.headers.value(HttpHeaders.contentTypeHeader);
+      response.headers.set(HttpHeaders.contentTypeHeader,
+          type ?? (seg.uri.path.endsWith('.ts') ? 'video/mp2t' : 'application/octet-stream'));
+      if (res.contentLength >= 0) response.contentLength = res.contentLength;
+      final contentRange = res.headers.value(HttpHeaders.contentRangeHeader);
+      if (contentRange != null) response.headers.set(HttpHeaders.contentRangeHeader, contentRange);
+      response.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
+      // Stream it through as it arrives; prefetch segments are still being
+      // produced while the player downloads them.
+      await res.pipe(response);
+      complete = res.statusCode == HttpStatus.ok || res.statusCode == HttpStatus.partialContent;
+    } catch (e) {
+      debugPrint('LiveProxy segment failed: $e');
+      try {
+        response.statusCode = HttpStatus.badGateway;
+        await response.close();
+      } catch (_) {}
+    } finally {
+      _downloading[gen] = (_downloading[gen] ?? 1) - 1;
+    }
+    if (complete && gen == _generation) {
+      final last = _lastFetched;
+      if (last == null || seg.seq > last.seq) _lastFetched = seg;
+    }
+  }
+
   /// Runs requests for the same variant one at a time.
   Future<String> _serialized(int index, Future<String> Function() task) {
     final previous = _locks[index] ?? Future.value();
@@ -156,7 +227,14 @@ class LiveProxy {
       if (!stitcher.isEmpty) break;
       await Future<void>.delayed(const Duration(milliseconds: 1500));
     }
-    return stitcher.render();
+    final gen = _generation;
+    final port = _server!.port;
+    return stitcher.render(uriFor: (s) {
+      final name = s.uri.pathSegments.isEmpty ? '' : s.uri.pathSegments.last;
+      final dot = name.lastIndexOf('.');
+      final ext = dot < 0 ? '.ts' : name.substring(dot);
+      return Uri.parse('http://127.0.0.1:$port/s/$gen/$index/${s.seq}$ext');
+    });
   }
 
   Future<void> _update(int index, Stitcher stitcher) async {

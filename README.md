@@ -35,8 +35,10 @@ Kick and rewrites them:
   backup stream (Twitch's embed/popout/autoplay players), matched by time. If
   no backup is ad-free either, the player waits for the break to end
   ("Ad break, waiting for the stream").
-- **Latency readout.** "Xs behind live" compares the segment timestamps at
-  your playback position with the server's clock.
+- **Latency readout.** Video segments pass through the relay too, so Relay
+  knows the newest piece the player downloaded and its timestamp. "Xs behind
+  live" is that piece's age plus however much video is buffered ahead of the
+  playhead.
 
 ### Web player fallback
 
