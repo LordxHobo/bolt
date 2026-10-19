@@ -35,11 +35,12 @@ class LiveProxy {
     ..userAgent = browserUserAgent
     ..connectionTimeout = const Duration(seconds: 10);
 
-  /// Segment downloads in progress, per player generation.
-  final Map<int, int> _downloading = {};
-
   /// The newest segment the current player finished downloading.
   StitchedSegment? _lastFetched;
+
+  /// Recent estimates of "stream time at player position 0" (microseconds
+  /// since epoch), see [latencyFor].
+  final List<int> _anchors = [];
 
   /// Index of the forced quality, or null for automatic.
   int? selectedVariant;
@@ -89,27 +90,32 @@ class LiveProxy {
     // A fresh timeline for the new player instance.
     _stitchers.clear();
     _lastFetched = null;
+    _anchors.clear();
     return Uri.parse('http://127.0.0.1:${_server!.port}/m/$_generation.m3u8');
   }
 
   /// "Seconds behind live" for a player at [position] whose buffer reaches
-  /// [bufferedEnd].
+  /// [bufferedEnd] (null if the player doesn't report its buffer).
   ///
-  /// The end of the newest downloaded segment is the end of the buffer, and
-  /// its timestamp is known, so: latency = age of that segment's end + how
-  /// much buffer is still ahead of the playhead. This doesn't depend on how
-  /// the player numbers its timeline (AVPlayer and ExoPlayer differ).
-  double? latencyFor(Duration position, Duration bufferedEnd) {
-    // While a segment is still arriving the buffer end is in between.
-    if ((_downloading[_generation] ?? 0) > 0) return null;
+  /// The buffer ends at the end of the newest downloaded segment, plus
+  /// whatever part of the next one has arrived so far (at the live edge one
+  /// is almost always arriving). So "end of the newest finished segment minus
+  /// bufferedEnd" is never later than the stream time at player position 0,
+  /// and equals it whenever nothing extra has arrived. The latest of the
+  /// recent estimates is used. This works however the player numbers its
+  /// timeline (AVPlayer and ExoPlayer differ).
+  double? latencyFor(Duration position, Duration? bufferedEnd) {
     final seg = _lastFetched;
     final pdt = seg?.pdt;
     if (seg == null || pdt == null) return null;
-    final ahead = (bufferedEnd - position).inMilliseconds / 1000;
-    if (ahead < -0.5 || ahead > 120) return null;
-    final edge = pdt.add(Duration(microseconds: (seg.duration * 1000000).round()));
-    final now = DateTime.now().toUtc().add(serverOffset);
-    final seconds = now.difference(edge).inMilliseconds / 1000 + (ahead < 0 ? 0 : ahead);
+    final end = pdt.add(Duration(microseconds: (seg.duration * 1000000).round()));
+    final reference = bufferedEnd ?? position;
+    _anchors.add(end.microsecondsSinceEpoch - reference.inMicroseconds);
+    if (_anchors.length > 20) _anchors.removeAt(0);
+    final anchor = _anchors.reduce((a, b) => a > b ? a : b);
+    final playhead = anchor + position.inMicroseconds;
+    final now = DateTime.now().toUtc().add(serverOffset).microsecondsSinceEpoch;
+    final seconds = (now - playhead) / 1000000;
     if (seconds < 0 || seconds > 120) return null;
     return seconds;
   }
@@ -175,7 +181,6 @@ class LiveProxy {
       await response.close();
       return;
     }
-    _downloading[gen] = (_downloading[gen] ?? 0) + 1;
     var complete = false;
     try {
       final upstream = await _http.getUrl(seg.uri);
@@ -200,8 +205,6 @@ class LiveProxy {
         response.statusCode = HttpStatus.badGateway;
         await response.close();
       } catch (_) {}
-    } finally {
-      _downloading[gen] = (_downloading[gen] ?? 1) - 1;
     }
     if (complete && gen == _generation) {
       final last = _lastFetched;

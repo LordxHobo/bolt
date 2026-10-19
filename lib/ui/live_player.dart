@@ -154,11 +154,10 @@ class LivePlayerState extends State<LivePlayer> {
     final proxy = _proxy;
     if (c == null || proxy == null || !c.value.isInitialized || !c.value.isPlaying) return;
     final position = c.value.position;
-    var bufferedEnd = Duration.zero;
+    Duration? bufferedEnd;
     for (final r in c.value.buffered) {
-      if (r.end > bufferedEnd) bufferedEnd = r.end;
+      if (bufferedEnd == null || r.end > bufferedEnd) bufferedEnd = r.end;
     }
-    if (bufferedEnd == Duration.zero) return;
     final reading = proxy.latencyFor(position, bufferedEnd);
     if (reading == null) return;
     _recent.add(reading);
@@ -172,7 +171,7 @@ class LivePlayerState extends State<LivePlayer> {
     }
     // Seconds of video downloaded but not played yet. Speeding up only helps
     // while there's some to eat into; at the live edge it would just stall.
-    final ahead = (bufferedEnd - position).inMilliseconds / 1000;
+    final ahead = bufferedEnd == null ? 0.0 : (bufferedEnd - position).inMilliseconds / 1000;
     const target = 3.5;
     _farBehind = latency > 30 ? _farBehind + 1 : 0;
     if (_farBehind >= 5) {
