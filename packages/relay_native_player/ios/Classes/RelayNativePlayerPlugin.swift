@@ -69,6 +69,9 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
   private var rate: Float = 1
   private var pip: AVPictureInPictureController?
   weak var layer: AVPlayerLayer?
+  private var statusObservation: NSKeyValueObservation?
+  private var appObservers: [NSObjectProtocol] = []
+  private var startedPipOnLeave = false
 
   init(url: URL, liveOffset: Double?) {
     item = AVPlayerItem(url: url)
@@ -80,6 +83,45 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     player = AVPlayer(playerItem: item)
     super.init()
     RelayPlayer.claimAudioSession()
+
+    // At the live edge AVPlayer can't play faster than real time; if it
+    // starts waiting for data while sped up it may never resume, so drop
+    // back to normal speed whenever it has to wait.
+    statusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+      guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
+      DispatchQueue.main.async {
+        guard let self = self, self.rate > 1 else { return }
+        self.setRate(1)
+      }
+    }
+
+    // Picture-in-picture when you leave Relay. iOS can do this by itself
+    // (canStartPictureInPictureAutomaticallyFromInline), but not reliably
+    // for a player inside a Flutter view, so start it ourselves as the app
+    // is about to leave the screen, and close it again when you come back.
+    let center = NotificationCenter.default
+    appObservers.append(center.addObserver(
+      forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+    ) { [weak self] _ in self?.startPipOnLeave() })
+    appObservers.append(center.addObserver(
+      forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+    ) { [weak self] _ in self?.stopPipOnReturn() })
+  }
+
+  private func startPipOnLeave() {
+    guard let pip = pip, !pip.isPictureInPictureActive, player.rate > 0 || player.timeControlStatus != .paused else { return }
+    RelayPlayer.claimAudioSession()
+    if pip.isPictureInPicturePossible {
+      startedPipOnLeave = true
+      pip.startPictureInPicture()
+    }
+  }
+
+  private func stopPipOnReturn() {
+    guard let pip = pip else { return }
+    // Back in Relay: show the video in the app again.
+    if pip.isPictureInPictureActive { pip.stopPictureInPicture() }
+    startedPipOnLeave = false
   }
 
   /// Needed for sound with the silent switch on, for playback in the
@@ -163,6 +205,10 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
   }
 
   func dispose() {
+    statusObservation?.invalidate()
+    statusObservation = nil
+    for observer in appObservers { NotificationCenter.default.removeObserver(observer) }
+    appObservers.removeAll()
     pip?.stopPictureInPicture()
     pip = nil
     player.pause()

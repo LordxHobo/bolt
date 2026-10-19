@@ -50,6 +50,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   /// False after you press pause, so returning to Relay doesn't undo it.
   bool _wantPlaying = true;
 
+  /// Seconds the player has been stuck waiting for video.
+  int _stalledFor = 0;
+
   @override
   void initState() {
     super.initState();
@@ -108,6 +111,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       _latency = null;
       _recent.clear();
       _speed = 1.0;
+      _stalledFor = 0;
       _detailText = null;
     });
     try {
@@ -184,7 +188,26 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   void _tick() {
     final c = _controller;
     final proxy = _proxy;
-    if (c == null || proxy == null || !c.isInitialized || !c.isPlaying) return;
+    if (c == null || proxy == null || !c.isInitialized) return;
+    if (!c.isPlaying) {
+      // Waiting for video (or paused): never stay sped up, or the player can
+      // wait forever at the live edge.
+      _setSpeed(1.0);
+      if (c.isBuffering && _wantPlaying) {
+        _stalledFor++;
+        final inApp = WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+        if (_stalledFor >= 10 && inApp) {
+          // Stuck for 10 s: restart at the live edge (not while in
+          // picture-in-picture, which a restart would close).
+          _stalledFor = 0;
+          reload();
+        }
+      } else {
+        _stalledFor = 0;
+      }
+      return;
+    }
+    _stalledFor = 0;
     final position = c.position;
     final bufferedEnd = c.bufferedEnd;
     // The iPhone player knows the exact stream time on screen; otherwise
