@@ -68,6 +68,7 @@ class _KickWebLoginScreenState extends State<KickWebLoginScreen> {
               initialSettings: InAppWebViewSettings(
                 javaScriptEnabled: true,
                 mediaPlaybackRequiresUserGesture: true,
+                allowsPictureInPictureMediaPlayback: false,
               ),
               onProgressChanged: (controller, progress) {
                 if (mounted) setState(() => _progress = progress / 100);

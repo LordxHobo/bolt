@@ -21,6 +21,14 @@ abstract class LiveVideo extends ChangeNotifier {
   Future<void> setSpeed(double speed);
   Future<void> setMuted(bool muted);
 
+  /// Moves the video into picture-in-picture (iPhone only).
+  Future<void> startPip() async {}
+
+  /// Whether [startPip] can work right now, and a short status for the
+  /// details line.
+  bool get pipAvailable => false;
+  String? get pipStatus => null;
+
   bool get isInitialized;
   bool get isPlaying;
   bool get isBuffering;
@@ -122,6 +130,8 @@ class _NativeLiveVideo extends LiveVideo {
   Duration _position = Duration.zero;
   Duration? _bufferedEnd;
   DateTime? _date;
+  bool _pipPossible = false;
+  String? _pipStatus;
 
   @override
   Future<void> initialize() async {
@@ -168,6 +178,10 @@ class _NativeLiveVideo extends LiveVideo {
     _bufferedEnd = buf == null ? null : Duration(milliseconds: buf);
     final date = s['date'];
     _date = date is num ? DateTime.fromMillisecondsSinceEpoch(date.round(), isUtc: true) : null;
+    _pipPossible = s['pipPossible'] == true;
+    String yn(Object? v) => v == true ? 'yes' : 'no';
+    _pipStatus = 'PiP supported ${yn(s['pipSupported'])} · possible ${yn(s['pipPossible'])} · '
+        'auto ${yn(s['pipAuto'])} · active ${yn(s['pip'])}';
     notifyListeners();
   }
 
@@ -186,6 +200,12 @@ class _NativeLiveVideo extends LiveVideo {
   Future<void> setSpeed(double speed) => _call('setRate', {'rate': speed});
   @override
   Future<void> setMuted(bool muted) => _call('setMuted', {'muted': muted});
+  @override
+  Future<void> startPip() => _call('startPip');
+  @override
+  bool get pipAvailable => _pipPossible;
+  @override
+  String? get pipStatus => _pipStatus;
 
   @override
   bool get isInitialized => _initialized;

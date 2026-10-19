@@ -47,6 +47,8 @@ public class RelayNativePlayerPlugin: NSObject, FlutterPlugin {
       player.setRate((args["rate"] as? NSNumber)?.floatValue ?? 1)
     case "setMuted":
       player.player.isMuted = (args["muted"] as? Bool) ?? false
+    case "startPip":
+      player.startPip()
     case "state":
       result(player.state())
       return
@@ -71,17 +73,21 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
   init(url: URL, liveOffset: Double?) {
     item = AVPlayerItem(url: url)
     if #available(iOS 13.0, *), let offset = liveOffset {
-      // Ask AVPlayer to sit this close to the live edge (its default is
-      // about three segment durations).
-      item.automaticallyPreservesTimeOffsetFromLive = true
+      // Start this close to the live edge (AVPlayer's default is about three
+      // segment durations). Relay's catch-up keeps it there afterwards.
       item.configuredTimeOffsetFromLive = CMTime(seconds: offset, preferredTimescale: 1000)
     }
     player = AVPlayer(playerItem: item)
     super.init()
-    // Needed for sound with the silent switch on, for playback in the
-    // background and for picture-in-picture.
+    RelayPlayer.claimAudioSession()
+  }
+
+  /// Needed for sound with the silent switch on, for playback in the
+  /// background and for picture-in-picture. Re-applied on every play in case
+  /// something else (e.g. a web view) changed it.
+  static func claimAudioSession() {
     let session = AVAudioSession.sharedInstance()
-    try? session.setCategory(.playback, mode: .moviePlayback)
+    try? session.setCategory(.playback, mode: .moviePlayback, options: [])
     try? session.setActive(true)
   }
 
@@ -99,12 +105,20 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
   }
 
   func play() {
+    RelayPlayer.claimAudioSession()
     if #available(iOS 16.0, *) { player.defaultRate = rate }
     player.rate = rate
   }
 
   func pause() {
     player.pause()
+  }
+
+  func startPip() {
+    RelayPlayer.claimAudioSession()
+    if let pip = pip, pip.isPictureInPicturePossible {
+      pip.startPictureInPicture()
+    }
   }
 
   func setRate(_ value: Float) {
@@ -140,6 +154,11 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     s["width"] = Double(item.presentationSize.width)
     s["height"] = Double(item.presentationSize.height)
     s["pip"] = pip?.isPictureInPictureActive ?? false
+    s["pipPossible"] = pip?.isPictureInPicturePossible ?? false
+    s["pipSupported"] = AVPictureInPictureController.isPictureInPictureSupported()
+    var auto = false
+    if #available(iOS 14.2, *) { auto = pip?.canStartPictureInPictureAutomaticallyFromInline ?? false }
+    s["pipAuto"] = auto
     return s
   }
 

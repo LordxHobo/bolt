@@ -30,7 +30,7 @@ class LivePlayer extends StatefulWidget {
   State<LivePlayer> createState() => LivePlayerState();
 }
 
-class LivePlayerState extends State<LivePlayer> {
+class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   LiveProxy? _proxy;
   LiveVideo? _controller;
   Timer? _orientationReset;
@@ -47,10 +47,31 @@ class LivePlayerState extends State<LivePlayer> {
   bool _details = false;
   String? _detailText;
 
+  /// False after you press pause, so returning to Relay doesn't undo it.
+  bool _wantPlaying = true;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _start();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // iOS pauses the video when Relay goes to the background without
+    // picture-in-picture; carry on when you come back.
+    final c = _controller;
+    if (state == AppLifecycleState.resumed && c != null && _wantPlaying && !c.isPlaying) {
+      c.play();
+    }
+  }
+
+  void _playPause() {
+    final c = _controller;
+    if (c == null) return;
+    _wantPlaying = !c.isPlaying;
+    _wantPlaying ? c.play() : c.pause();
   }
 
   @override
@@ -64,6 +85,7 @@ class LivePlayerState extends State<LivePlayer> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _session++;
     _hideTimer?.cancel();
     _latencyTimer?.cancel();
@@ -106,7 +128,8 @@ class LivePlayerState extends State<LivePlayer> {
         url = proxy.playUrl();
       }
       if (session != _session || !mounted) return;
-      final controller = LiveVideo.create(url, liveOffset: _lowLatency ? 2.0 : null);
+      final controller = LiveVideo.create(url, liveOffset: _lowLatency ? 1.5 : null);
+      _wantPlaying = true;
       _controller = controller;
       controller.addListener(_onPlayerChanged);
       await controller.initialize();
@@ -177,7 +200,13 @@ class LivePlayerState extends State<LivePlayer> {
     }
     if (_details && mounted) {
       var text = proxy.debugInfo(position, bufferedEnd, _speed);
-      if (date != null) text += '\nplayhead time from AVPlayer';
+      final buffered = bufferedEnd == null ? null : (bufferedEnd - position).inMilliseconds / 1000;
+      if (date != null) {
+        text += '\nAVPlayer: ${reading?.toStringAsFixed(1) ?? '-'}s behind · '
+            'buffer ahead ${buffered?.toStringAsFixed(1) ?? '-'}s';
+      }
+      final pip = c.pipStatus;
+      if (pip != null) text += '\n$pip';
       setState(() => _detailText = text);
     }
     if (reading == null) return;
@@ -193,14 +222,14 @@ class LivePlayerState extends State<LivePlayer> {
     // Seconds of video downloaded but not played yet. Speeding up only helps
     // while there's some to eat into; at the live edge it would just stall.
     final ahead = bufferedEnd == null ? 0.0 : (bufferedEnd - position).inMilliseconds / 1000;
-    const target = 3.5;
+    const target = 2.5;
     // No automatic reloads from this reading: if it's ever wrong, the worst
     // case is a slightly faster playback for a moment, not a restart.
-    if (ahead < 1.0 || latency > 30 || latency <= target + 0.3) {
+    if (ahead < 0.6 || latency > 30 || latency <= target + 0.2) {
       _setSpeed(1.0);
-    } else if (latency > target + 4) {
+    } else if (latency > target + 3) {
       _setSpeed(1.25);
-    } else if (latency > target + 1.5) {
+    } else if (latency > target + 0.8) {
       _setSpeed(1.1);
     }
   }
@@ -332,6 +361,8 @@ class LivePlayerState extends State<LivePlayer> {
                   onReload: reload,
                   fullscreen: MediaQuery.of(context).orientation == Orientation.landscape,
                   onFullscreen: _toggleFullscreen,
+                  onPlayPause: _playPause,
+                  onPip: defaultTargetPlatform == TargetPlatform.iOS ? c.startPip : null,
                 ),
               ),
             ),
@@ -397,6 +428,8 @@ class _Controls extends StatelessWidget {
     required this.onReload,
     required this.fullscreen,
     required this.onFullscreen,
+    required this.onPlayPause,
+    this.onPip,
   });
 
   final LiveVideo controller;
@@ -405,6 +438,8 @@ class _Controls extends StatelessWidget {
   final VoidCallback onReload;
   final bool fullscreen;
   final VoidCallback onFullscreen;
+  final VoidCallback onPlayPause;
+  final VoidCallback? onPip;
 
   @override
   Widget build(BuildContext context) {
@@ -425,7 +460,7 @@ class _Controls extends StatelessWidget {
               iconSize: 56,
               color: Colors.white,
               icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
-              onPressed: () => playing ? controller.pause() : controller.play(),
+              onPressed: onPlayPause,
             ),
           ),
           Positioned(
@@ -464,6 +499,13 @@ class _Controls extends StatelessWidget {
                   icon: Icon(muted ? Icons.volume_off_rounded : Icons.volume_up_rounded),
                   onPressed: () => controller.setMuted(!muted),
                 ),
+                if (onPip != null)
+                  IconButton(
+                    color: Colors.white,
+                    tooltip: 'Picture in picture',
+                    icon: const Icon(Icons.picture_in_picture_alt_rounded),
+                    onPressed: onPip,
+                  ),
                 IconButton(
                   color: Colors.white,
                   tooltip: fullscreen ? 'Exit full screen' : 'Full screen',

@@ -93,7 +93,13 @@ class KickWeb {
       initialUrlRequest: URLRequest(url: WebUri('https://kick.com/')),
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
+        // This page only runs requests; it must never play kick.com's
+        // featured stream (which could also take over picture-in-picture
+        // from Relay's player).
         mediaPlaybackRequiresUserGesture: true,
+        allowsInlineMediaPlayback: false,
+        allowsPictureInPictureMediaPlayback: false,
+        allowsAirPlayForMediaPlayback: false,
       ),
       onWebViewCreated: (controller) => _controller = controller,
       // Complete whichever load is pending (the first one, or a reloadPage()).
