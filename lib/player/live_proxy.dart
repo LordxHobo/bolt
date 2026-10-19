@@ -181,6 +181,10 @@ class LiveProxy {
       await response.close();
       return;
     }
+    // Players download segments in order, so asking for this one means the
+    // previous one is complete (in case we never saw it finish).
+    final previous = _stitchers[index]?.bySeq(seg.seq - 1);
+    if (previous != null) _markFetched(gen, previous);
     var complete = false;
     try {
       final upstream = await _http.getUrl(seg.uri);
@@ -197,8 +201,9 @@ class LiveProxy {
       response.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       // Stream it through as it arrives; prefetch segments are still being
       // produced while the player downloads them.
-      await res.pipe(response);
+      await response.addStream(res);
       complete = res.statusCode == HttpStatus.ok || res.statusCode == HttpStatus.partialContent;
+      await response.close();
     } catch (e) {
       debugPrint('LiveProxy segment failed: $e');
       try {
@@ -206,10 +211,13 @@ class LiveProxy {
         await response.close();
       } catch (_) {}
     }
-    if (complete && gen == _generation) {
-      final last = _lastFetched;
-      if (last == null || seg.seq > last.seq) _lastFetched = seg;
-    }
+    if (complete) _markFetched(gen, seg);
+  }
+
+  void _markFetched(int gen, StitchedSegment seg) {
+    if (gen != _generation) return;
+    final last = _lastFetched;
+    if (last == null || seg.seq > last.seq) _lastFetched = seg;
   }
 
   /// Runs requests for the same variant one at a time.
