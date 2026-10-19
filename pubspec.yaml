@@ -16,6 +16,9 @@ dependencies:
   flutter_inappwebview: ^6.1.5
   # Native HLS playback for Kick streams.
   video_player: ^2.9.2
+  # Relay's own iPhone player (picture-in-picture), in packages/.
+  relay_native_player:
+    path: packages/relay_native_player
 
   http: ^1.2.2
   web_socket_channel: ^3.0.1

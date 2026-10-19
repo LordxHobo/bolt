@@ -19,10 +19,13 @@ enum AdState { none, blocking, waiting }
 /// of the stream the player has downloaded (that's what the latency readout
 /// is based on).
 class LiveProxy {
-  LiveProxy(this.source, {this.lowLatency = true});
+  LiveProxy(this.source, {this.lowLatency = true, this.proxySegments = true});
 
   final StreamSource source;
   final bool lowLatency;
+
+  /// Route video segments through the relay too (needed for [latencyFor]).
+  final bool proxySegments;
 
   HttpServer? _server;
   List<HlsVariant> _variants = [];
@@ -264,6 +267,7 @@ class LiveProxy {
       if (!stitcher.isEmpty) break;
       await Future<void>.delayed(const Duration(milliseconds: 1500));
     }
+    if (!proxySegments) return stitcher.render();
     final gen = _generation;
     final port = _server!.port;
     return stitcher.render(uriFor: (s) {

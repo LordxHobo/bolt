@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
+import 'package:flutter/services.dart';
 
 import '../core/services.dart';
 import '../player/live_proxy.dart';
+import '../player/live_video.dart';
 import '../player/sources.dart';
 
 /// Native live player (AVPlayer on iOS, ExoPlayer on Android) fed through
@@ -30,7 +32,8 @@ class LivePlayer extends StatefulWidget {
 
 class LivePlayerState extends State<LivePlayer> {
   LiveProxy? _proxy;
-  VideoPlayerController? _controller;
+  LiveVideo? _controller;
+  Timer? _orientationReset;
   String? _error;
   bool _offline = false;
   bool _starting = false;
@@ -64,8 +67,9 @@ class LivePlayerState extends State<LivePlayer> {
     _session++;
     _hideTimer?.cancel();
     _latencyTimer?.cancel();
+    _orientationReset?.cancel();
     _controller?.removeListener(_onPlayerChanged);
-    _controller?.dispose();
+    _controller?.close();
     _proxy?.close();
     super.dispose();
   }
@@ -88,18 +92,21 @@ class LivePlayerState extends State<LivePlayer> {
       var proxy = _proxy;
       Uri url;
       if (proxy == null) {
-        proxy = LiveProxy(widget.createSource(), lowLatency: _lowLatency);
+        proxy = LiveProxy(
+          widget.createSource(),
+          lowLatency: _lowLatency,
+          // The iPhone player reports the stream time itself, so it can load
+          // video straight from Twitch/Kick; Android's needs the relay to
+          // see what it downloads.
+          proxySegments: defaultTargetPlatform != TargetPlatform.iOS,
+        );
         _proxy = proxy;
         url = await proxy.start();
       } else {
         url = proxy.playUrl();
       }
       if (session != _session || !mounted) return;
-      final controller = VideoPlayerController.networkUrl(
-        url,
-        formatHint: VideoFormat.hls,
-        videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: false),
-      );
+      final controller = LiveVideo.create(url, liveOffset: _lowLatency ? 2.0 : null);
       _controller = controller;
       controller.addListener(_onPlayerChanged);
       await controller.initialize();
@@ -124,7 +131,7 @@ class LivePlayerState extends State<LivePlayer> {
     final old = _controller;
     _controller = null;
     old?.removeListener(_onPlayerChanged);
-    await old?.dispose();
+    await old?.close();
     if (!keepQuality) {
       await _proxy?.close();
       _proxy = null;
@@ -142,8 +149,9 @@ class LivePlayerState extends State<LivePlayer> {
   void _onPlayerChanged() {
     final c = _controller;
     if (c == null || !mounted) return;
-    if (c.value.hasError && _error == null) {
-      setState(() => _error = c.value.errorDescription ?? 'Playback error');
+    final error = c.error;
+    if (error != null && _error == null) {
+      setState(() => _error = error);
     } else {
       setState(() {});
     }
@@ -153,15 +161,24 @@ class LivePlayerState extends State<LivePlayer> {
   void _tick() {
     final c = _controller;
     final proxy = _proxy;
-    if (c == null || proxy == null || !c.value.isInitialized || !c.value.isPlaying) return;
-    final position = c.value.position;
-    Duration? bufferedEnd;
-    for (final r in c.value.buffered) {
-      if (bufferedEnd == null || r.end > bufferedEnd) bufferedEnd = r.end;
+    if (c == null || proxy == null || !c.isInitialized || !c.isPlaying) return;
+    final position = c.position;
+    final bufferedEnd = c.bufferedEnd;
+    // The iPhone player knows the exact stream time on screen; otherwise
+    // estimate it from what the player downloaded.
+    final date = c.playheadDate;
+    double? reading;
+    if (date != null) {
+      final now = DateTime.now().toUtc().add(proxy.serverOffset);
+      final seconds = now.difference(date).inMilliseconds / 1000;
+      if (seconds >= 0 && seconds < 120) reading = seconds;
+    } else {
+      reading = proxy.latencyFor(position, bufferedEnd);
     }
-    final reading = proxy.latencyFor(position, bufferedEnd);
     if (_details && mounted) {
-      setState(() => _detailText = proxy.debugInfo(position, bufferedEnd, _speed));
+      var text = proxy.debugInfo(position, bufferedEnd, _speed);
+      if (date != null) text += '\nplayhead time from AVPlayer';
+      setState(() => _detailText = text);
     }
     if (reading == null) return;
     _recent.add(reading);
@@ -191,7 +208,25 @@ class LivePlayerState extends State<LivePlayer> {
   void _setSpeed(double speed) {
     if (speed == _speed) return;
     _speed = speed;
-    _controller?.setPlaybackSpeed(speed);
+    _controller?.setSpeed(speed);
+  }
+
+  /// Turns the screen sideways (or back) from the button, which also works
+  /// with the iPhone's rotation lock on.
+  Future<void> _toggleFullscreen() async {
+    _orientationReset?.cancel();
+    if (MediaQuery.of(context).orientation == Orientation.landscape) {
+      await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+      // Afterwards let the phone rotate on its own again (if rotation lock
+      // is off).
+      _orientationReset = Timer(const Duration(seconds: 2), () {
+        SystemChrome.setPreferredOrientations(const []);
+      });
+    } else {
+      await SystemChrome.setPreferredOrientations(
+          [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+    }
+    _scheduleHide();
   }
 
   void _scheduleHide() {
@@ -254,10 +289,9 @@ class LivePlayerState extends State<LivePlayer> {
         text: _error!,
         action: TextButton(onPressed: () => reload(keepQuality: false), child: const Text('Retry')),
       );
-    } else if (c == null || !c.value.isInitialized || _starting) {
+    } else if (c == null || !c.isInitialized || _starting) {
       child = const Center(child: CircularProgressIndicator());
     } else {
-      final aspect = c.value.aspectRatio > 0 ? c.value.aspectRatio : 16 / 9;
       final proxy = _proxy;
       child = GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -265,8 +299,8 @@ class LivePlayerState extends State<LivePlayer> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Center(child: AspectRatio(aspectRatio: aspect, child: VideoPlayer(c))),
-            if (c.value.isBuffering) const Center(child: CircularProgressIndicator()),
+            c.buildView(),
+            if (c.isBuffering) const Center(child: CircularProgressIndicator()),
             if (proxy != null)
               ValueListenableBuilder<AdState>(
                 valueListenable: proxy.adState,
@@ -296,6 +330,8 @@ class LivePlayerState extends State<LivePlayer> {
                       : proxy.variants[proxy.playingVariant].label,
                   onQuality: _showQualityMenu,
                   onReload: reload,
+                  fullscreen: MediaQuery.of(context).orientation == Orientation.landscape,
+                  onFullscreen: _toggleFullscreen,
                 ),
               ),
             ),
@@ -359,17 +395,21 @@ class _Controls extends StatelessWidget {
     required this.qualityLabel,
     required this.onQuality,
     required this.onReload,
+    required this.fullscreen,
+    required this.onFullscreen,
   });
 
-  final VideoPlayerController controller;
+  final LiveVideo controller;
   final String? qualityLabel;
   final VoidCallback onQuality;
   final VoidCallback onReload;
+  final bool fullscreen;
+  final VoidCallback onFullscreen;
 
   @override
   Widget build(BuildContext context) {
-    final playing = controller.value.isPlaying;
-    final muted = controller.value.volume == 0;
+    final playing = controller.isPlaying;
+    final muted = controller.isMuted;
     return DecoratedBox(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -422,7 +462,13 @@ class _Controls extends StatelessWidget {
                   color: Colors.white,
                   tooltip: muted ? 'Unmute' : 'Mute',
                   icon: Icon(muted ? Icons.volume_off_rounded : Icons.volume_up_rounded),
-                  onPressed: () => controller.setVolume(muted ? 1 : 0),
+                  onPressed: () => controller.setMuted(!muted),
+                ),
+                IconButton(
+                  color: Colors.white,
+                  tooltip: fullscreen ? 'Exit full screen' : 'Full screen',
+                  icon: Icon(fullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded),
+                  onPressed: onFullscreen,
                 ),
               ],
             ),

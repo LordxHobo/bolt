@@ -61,6 +61,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
     _chat?.dispose();
     WakelockPlus.disable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    // Undo the full screen button's forced rotation.
+    SystemChrome.setPreferredOrientations(const []);
     super.dispose();
   }
 

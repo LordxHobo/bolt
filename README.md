@@ -11,6 +11,8 @@ A phone app (Android + iOS) for watching **Twitch and Kick** in one place, with
   Twitch ads (ported from TwitchAdSolutions' `vaft`)
 - Latency readout on the video and a low-latency mode that catches up
   automatically (both in Settings → Player)
+- iPhone: picture-in-picture when you swipe home while a stream plays, and a
+  full screen button that rotates the video even with rotation lock on
 - Twitch's own web player is still available as a fallback, with the
   TwitchAdSolutions scripts injected
 - Native chat for both: 7TV global + channel emotes (including zero-width
@@ -183,6 +185,7 @@ lib/
   kick/                     website API (+ Cloudflare fallback), OAuth login, Centrifugo chat
   chat/                     chat models, 7TV, chat controller
   player/                   local relay: HLS parsing/stitching, Twitch/Kick sources
+packages/relay_native_player/   the iPhone player (AVPlayer + picture-in-picture)
   ui/                       screens and widgets
 assets/adblock/             bundled TwitchAdSolutions scripts + MIT license
 assets/icon/                app icon (icon.png for iOS, icon_foreground.png for Android)

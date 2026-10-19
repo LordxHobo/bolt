@@ -1,0 +1,18 @@
+name: relay_native_player
+description: Relay's iPhone live player (AVPlayer) with automatic picture-in-picture.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: RelayNativePlayerPlugin

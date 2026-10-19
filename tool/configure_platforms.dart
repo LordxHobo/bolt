@@ -112,6 +112,18 @@ void _ios() {
       '</dict>\n</plist>\n',
     );
   }
+  // Keep playing (and allow picture-in-picture) when Relay is in the
+  // background.
+  if (!s.contains('UIBackgroundModes')) {
+    s = s.replaceFirst(
+      RegExp(r'</dict>\s*</plist>\s*$'),
+      '\t<key>UIBackgroundModes</key>\n'
+      '\t<array>\n'
+      '\t\t<string>audio</string>\n'
+      '\t</array>\n'
+      '</dict>\n</plist>\n',
+    );
+  }
   plist.writeAsStringSync(s);
   stdout.writeln('Patched ${plist.path}');
 }
