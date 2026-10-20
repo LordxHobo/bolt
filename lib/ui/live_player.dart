@@ -60,6 +60,10 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   /// When the current playback started; catch-up waits a moment after.
   DateTime _startedAt = DateTime.now();
 
+  /// Catch-up: readings in a row that were too far behind, and the last jump.
+  int _behindFor = 0;
+  DateTime _lastJump = DateTime.fromMillisecondsSinceEpoch(0);
+
   @override
   void initState() {
     super.initState();
@@ -255,22 +259,32 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       _setSpeed(1.0);
       return;
     }
-    // Seconds of video downloaded but not played yet. Speeding up only helps
-    // while there's some to eat into; at the live edge it would just stall.
+    // Catch up by jumping forward through video that's already loaded, not
+    // by playing faster: at 1.1-1.25x a 60 fps stream drops frames and looks
+    // choppy. Playback always stays at normal speed.
+    _setSpeed(1.0);
     final ahead = bufferedEnd == null ? 0.0 : (bufferedEnd - position).inMilliseconds / 1000;
     // Closer than ~3 s the player would be waiting on the segment Twitch is
     // still recording, which only arrives once it's complete.
     const target = 3.0;
-    // No automatic reloads from this reading: if it's ever wrong, the worst
-    // case is a slightly faster playback for a moment, not a restart.
-    // Let the player settle and build a little buffer before speeding up.
     final settling = DateTime.now().difference(_startedAt) < const Duration(seconds: 10);
-    if (settling || ahead < 1.5 || latency > 30 || latency <= target + 0.2) {
-      _setSpeed(1.0);
-    } else if (latency > target + 3) {
-      _setSpeed(1.25);
-    } else if (latency > target + 0.8) {
-      _setSpeed(1.1);
+    final behind = latency - target;
+    if (!settling && behind > 1.5 && ahead > 2.5 && latency < 60) {
+      _behindFor++;
+      final sinceJump = DateTime.now().difference(_lastJump);
+      // Behind for a few readings in a row, and not right after a jump.
+      if (_behindFor >= 3 && sinceJump > const Duration(seconds: 15)) {
+        // Keep at least 1.5 s of video loaded after the jump.
+        final jump = behind < ahead - 1.5 ? behind : ahead - 1.5;
+        if (jump > 1.0) {
+          _lastJump = DateTime.now();
+          _recent.clear();
+          c.seekForward(Duration(milliseconds: (jump * 1000).round()));
+        }
+        _behindFor = 0;
+      }
+    } else {
+      _behindFor = 0;
     }
   }
 

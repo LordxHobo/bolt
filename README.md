@@ -28,10 +28,11 @@ loads the stream from it, and Relay fetches the real playlists from Twitch or
 Kick and rewrites them:
 
 - **Lower latency.** Phones play Twitch's stock playlists about 15-20 s behind
-  live. Relay serves a short playlist with tight segment timing, adds Twitch's
-  early ("prefetch") segments, and in low-latency mode speeds playback up
-  slightly (1.1× or 1.25×) until you're back to about 3.5 s behind. Past 30 s
-  behind it reloads.
+  live. Relay serves a short playlist with tight segment timing and adds the
+  segment Twitch is recording right now. In low-latency mode, when playback
+  falls more than ~1.5 s behind its 3 s target, Relay jumps forward through
+  video that's already loaded (playback itself always stays at normal speed,
+  so 60 fps stays smooth).
 - **Ad removal (Twitch).** This is the same idea as TwitchAdSolutions' `vaft`:
   segments marked as ads are dropped and the gap is filled from an ad-free
   backup stream (Twitch's embed/popout/autoplay players), matched by time. If

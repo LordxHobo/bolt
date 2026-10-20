@@ -49,6 +49,8 @@ public class RelayNativePlayerPlugin: NSObject, FlutterPlugin {
       player.player.isMuted = (args["muted"] as? Bool) ?? false
     case "startPip":
       player.startPip()
+    case "seekBy":
+      player.seekBy((args["seconds"] as? NSNumber)?.doubleValue ?? 0)
     case "state":
       result(player.state())
       return
@@ -174,6 +176,14 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     if player.rate != 0 || player.timeControlStatus != .paused {
       player.playImmediately(atRate: value)
     }
+  }
+
+  /// Jumps forward within the loaded video (catching up to live without
+  /// changing speed). Exact seek, so it lands where asked.
+  func seekBy(_ seconds: Double) {
+    guard seconds > 0 else { return }
+    let target = CMTimeAdd(item.currentTime(), CMTime(seconds: seconds, preferredTimescale: 1000))
+    item.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero, completionHandler: nil)
   }
 
   /// Seconds of video loaded ahead of the playhead.

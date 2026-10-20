@@ -21,6 +21,9 @@ abstract class LiveVideo extends ChangeNotifier {
   Future<void> setSpeed(double speed);
   Future<void> setMuted(bool muted);
 
+  /// Jumps [by] forward (within what's already loaded).
+  Future<void> seekForward(Duration by);
+
   /// Moves the video into picture-in-picture (iPhone only).
   Future<void> startPip() async {}
 
@@ -71,6 +74,8 @@ class _PluginLiveVideo extends LiveVideo {
   Future<void> setSpeed(double speed) => _c.setPlaybackSpeed(speed);
   @override
   Future<void> setMuted(bool muted) => _c.setVolume(muted ? 0 : 1);
+  @override
+  Future<void> seekForward(Duration by) => _c.seekTo(_c.value.position + by);
 
   @override
   bool get isInitialized => _c.value.isInitialized;
@@ -208,6 +213,9 @@ class _NativeLiveVideo extends LiveVideo {
   Future<void> setMuted(bool muted) => _call('setMuted', {'muted': muted});
   @override
   Future<void> startPip() => _call('startPip');
+  @override
+  Future<void> seekForward(Duration by) =>
+      _call('seekBy', {'seconds': by.inMilliseconds / 1000});
   @override
   bool get pipAvailable => _pipPossible;
   @override
