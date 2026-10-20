@@ -139,9 +139,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
         url = proxy.playUrl();
       }
       if (session != _session || !mounted) return;
-      // Start ~3 s from the end of the playlist (the last listed segment is
+      // Start ~4 s from the end of the playlist (the last listed segment is
       // still being recorded); catch-up then closes in once there's buffer.
-      final controller = LiveVideo.create(url, liveOffset: _lowLatency ? 3.0 : null);
+      final controller = LiveVideo.create(url, liveOffset: _lowLatency ? 4.0 : null);
       _startedAt = DateTime.now();
       _wantPlaying = true;
       _controller = controller;
@@ -238,7 +238,8 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       final buffered = bufferedEnd == null ? null : (bufferedEnd - position).inMilliseconds / 1000;
       if (date != null) {
         text += '\nAVPlayer: ${reading?.toStringAsFixed(1) ?? '-'}s behind · '
-            'buffer ahead ${buffered?.toStringAsFixed(1) ?? '-'}s';
+            'buffer ahead ${buffered?.toStringAsFixed(1) ?? '-'}s · '
+            'playing at ${c.rate?.toStringAsFixed(2) ?? '-'}x';
       }
       final pip = c.pipStatus;
       if (pip != null) text += '\n$pip';
@@ -257,7 +258,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     // Seconds of video downloaded but not played yet. Speeding up only helps
     // while there's some to eat into; at the live edge it would just stall.
     final ahead = bufferedEnd == null ? 0.0 : (bufferedEnd - position).inMilliseconds / 1000;
-    const target = 2.5;
+    // Closer than ~3 s the player would be waiting on the segment Twitch is
+    // still recording, which only arrives once it's complete.
+    const target = 3.0;
     // No automatic reloads from this reading: if it's ever wrong, the worst
     // case is a slightly faster playback for a moment, not a restart.
     // Let the player settle and build a little buffer before speeding up.
@@ -272,9 +275,14 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   }
 
   void _setSpeed(double speed) {
-    if (speed == _speed) return;
+    final c = _controller;
+    // Also resend when the player isn't actually at that speed (it can drop
+    // back to 1x by itself when its buffer runs dry).
+    final actual = c?.rate;
+    final inSync = actual == null || actual == 0 || (actual - speed).abs() < 0.01;
+    if (speed == _speed && inSync) return;
     _speed = speed;
-    _controller?.setSpeed(speed);
+    c?.setSpeed(speed);
   }
 
   /// Turns the screen sideways (or back) from the button, which also works

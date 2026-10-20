@@ -90,7 +90,9 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     statusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
       guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
       DispatchQueue.main.async {
-        guard let self = self, self.rate > 1 else { return }
+        // Only when the buffer has really run dry, not during AVPlayer's
+        // brief check after a speed change.
+        guard let self = self, self.rate > 1, self.bufferAhead() < 1 else { return }
         self.setRate(1)
       }
     }
@@ -166,7 +168,27 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
   func setRate(_ value: Float) {
     rate = value
     if #available(iOS 16.0, *) { player.defaultRate = value }
-    if player.rate != 0 { player.rate = value }
+    // playImmediately: a plain rate change makes AVPlayer first check it can
+    // keep up at that speed, which on a live stream it never thinks it can,
+    // so it would sit "waiting" instead of catching up.
+    if player.rate != 0 || player.timeControlStatus != .paused {
+      player.playImmediately(atRate: value)
+    }
+  }
+
+  /// Seconds of video loaded ahead of the playhead.
+  private func bufferAhead() -> Double {
+    let now = item.currentTime().seconds
+    guard now.isFinite else { return 0 }
+    var ahead = 0.0
+    for value in item.loadedTimeRanges {
+      let range = value.timeRangeValue
+      let start = range.start.seconds, end = CMTimeRangeGetEnd(range).seconds
+      if start.isFinite && end.isFinite && start <= now + 0.5 && end > now {
+        ahead = max(ahead, end - now)
+      }
+    }
+    return ahead
   }
 
   func state() -> [String: Any] {
@@ -193,6 +215,7 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     s["playing"] = player.timeControlStatus == .playing
     s["buffering"] = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
     s["muted"] = player.isMuted
+    s["rate"] = Double(player.rate)
     s["width"] = Double(item.presentationSize.width)
     s["height"] = Double(item.presentationSize.height)
     s["pip"] = pip?.isPictureInPictureActive ?? false

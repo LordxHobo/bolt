@@ -41,6 +41,9 @@ abstract class LiveVideo extends ChangeNotifier {
   /// The stream's real time at the playhead, when the player knows it.
   DateTime? get playheadDate;
 
+  /// The speed the player is actually playing at, when it reports it.
+  double? get rate => null;
+
   Widget buildView();
 
   Future<void> close();
@@ -130,6 +133,7 @@ class _NativeLiveVideo extends LiveVideo {
   Duration _position = Duration.zero;
   Duration? _bufferedEnd;
   DateTime? _date;
+  double? _rate;
   bool _pipPossible = false;
   String? _pipStatus;
 
@@ -178,6 +182,8 @@ class _NativeLiveVideo extends LiveVideo {
     _bufferedEnd = buf == null ? null : Duration(milliseconds: buf);
     final date = s['date'];
     _date = date is num ? DateTime.fromMillisecondsSinceEpoch(date.round(), isUtc: true) : null;
+    final rate = s['rate'];
+    _rate = rate is num ? rate.toDouble() : null;
     _pipPossible = s['pipPossible'] == true;
     String yn(Object? v) => v == true ? 'yes' : 'no';
     _pipStatus = 'PiP supported ${yn(s['pipSupported'])} · possible ${yn(s['pipPossible'])} · '
@@ -225,6 +231,8 @@ class _NativeLiveVideo extends LiveVideo {
   Duration? get bufferedEnd => _bufferedEnd;
   @override
   DateTime? get playheadDate => _date;
+  @override
+  double? get rate => _rate;
 
   @override
   Widget buildView() {
