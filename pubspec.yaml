@@ -43,6 +43,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/adblock/
+    - assets/platform/
 
 # App icon. CI runs `dart run flutter_launcher_icons` after generating the
 # android/ and ios/ folders, so replacing these PNGs is all it takes to change it.

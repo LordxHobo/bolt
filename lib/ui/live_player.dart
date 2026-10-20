@@ -57,6 +57,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   /// Seconds the player has been stuck waiting for video.
   int _stalledFor = 0;
 
+  /// When the current playback started; catch-up waits a moment after.
+  DateTime _startedAt = DateTime.now();
+
   @override
   void initState() {
     super.initState();
@@ -136,7 +139,10 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
         url = proxy.playUrl();
       }
       if (session != _session || !mounted) return;
-      final controller = LiveVideo.create(url, liveOffset: _lowLatency ? 1.5 : null);
+      // Start ~3 s from the end of the playlist (the last listed segment is
+      // still being recorded); catch-up then closes in once there's buffer.
+      final controller = LiveVideo.create(url, liveOffset: _lowLatency ? 3.0 : null);
+      _startedAt = DateTime.now();
       _wantPlaying = true;
       _controller = controller;
       controller.addListener(_onPlayerChanged);
@@ -252,7 +258,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     const target = 2.5;
     // No automatic reloads from this reading: if it's ever wrong, the worst
     // case is a slightly faster playback for a moment, not a restart.
-    if (ahead < 0.6 || latency > 30 || latency <= target + 0.2) {
+    // Let the player settle and build a little buffer before speeding up.
+    final settling = DateTime.now().difference(_startedAt) < const Duration(seconds: 10);
+    if (settling || ahead < 1.5 || latency > 30 || latency <= target + 0.2) {
       _setSpeed(1.0);
     } else if (latency > target + 3) {
       _setSpeed(1.25);

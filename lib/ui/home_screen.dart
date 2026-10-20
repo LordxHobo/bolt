@@ -659,18 +659,10 @@ class _PlatformMark extends StatelessWidget {
   final StreamPlatform platform;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => SizedBox(
         width: 22,
         height: 22,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: platform.color,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          platform.label[0],
-          style: TextStyle(color: platform.onColor, fontWeight: FontWeight.w900, fontSize: 13),
-        ),
+        child: Image.asset(PlatformBadge.assetFor(platform), semanticLabel: platform.label),
       );
 }
 

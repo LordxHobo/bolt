@@ -328,7 +328,10 @@ class LiveProxy {
     if (lowLatency && !hasAds && playlist.segments.isNotEmpty && playlist.prefetch.isNotEmpty) {
       final last = playlist.segments.last;
       var pdt = last.programDateTime;
-      for (final uri in playlist.prefetch) {
+      // Only the first one: it's the segment being recorded right now. The
+      // next one doesn't exist yet, and listing it makes the player start
+      // on video that hasn't been made, so it stalls right after starting.
+      for (final uri in playlist.prefetch.take(1)) {
         pdt = pdt?.add(Duration(microseconds: (last.duration * 1000000).round()));
         candidates.add(Candidate(
           uri: uri,

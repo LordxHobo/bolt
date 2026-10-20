@@ -3,29 +3,36 @@ import 'package:flutter/material.dart';
 
 import '../core/models.dart';
 
+/// The Twitch or Kick logo. [compact] is the small version that sits on
+/// avatars and next to names, on a dark tile so it stands out on any picture.
 class PlatformBadge extends StatelessWidget {
   const PlatformBadge(this.platform, {super.key, this.compact = false});
 
   final StreamPlatform platform;
   final bool compact;
 
+  static String assetFor(StreamPlatform p) => switch (p) {
+        StreamPlatform.twitch => 'assets/platform/twitch.png',
+        StreamPlatform.kick => 'assets/platform/kick.png',
+      };
+
   @override
   Widget build(BuildContext context) {
+    final logo = Image.asset(
+      assetFor(platform),
+      filterQuality: FilterQuality.medium,
+      semanticLabel: platform.label,
+    );
+    if (!compact) return SizedBox(width: 24, height: 24, child: logo);
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 6, vertical: 1),
+      width: 18,
+      height: 18,
+      padding: const EdgeInsets.all(2.5),
       decoration: BoxDecoration(
-        color: platform.color,
-        borderRadius: BorderRadius.circular(4),
+        color: const Color(0xFF16161A),
+        borderRadius: BorderRadius.circular(5),
       ),
-      child: Text(
-        compact ? platform.label[0] : platform.label,
-        style: TextStyle(
-          color: platform.onColor,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          height: 1.3,
-        ),
-      ),
+      child: logo,
     );
   }
 }
