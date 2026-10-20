@@ -134,7 +134,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
     });
   }
 
-  Widget _player() {
+  void _toggleLandscapeChat() => setState(() => _showChatLandscape = !_showChatLandscape);
+
+  Widget _player({VoidCallback? onDoubleTap}) {
     if (_useWebPlayer) {
       return TwitchPlayer(key: _webKey, login: ref.login);
     }
@@ -146,6 +148,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
         // Only trust "offline" when the lookup actually succeeded; the player
         // finds out by itself otherwise.
         isLive: !_lookupOk || (_info?.isLive ?? true),
+        onDoubleTap: onDoubleTap,
         createSource: () => TwitchSource(ref.login, blockAds: blockAds),
       );
     }
@@ -165,6 +168,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       key: _liveKey,
       sourceKey: 'kick:${playbackUrl ?? ''}:${Services.settings.lowLatency}',
       isLive: info.isLive && playbackUrl != null,
+      onDoubleTap: onDoubleTap,
       createSource: () => KickSource(playbackUrl!),
     );
   }
@@ -240,7 +244,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
         Expanded(
           child: Stack(
             children: [
-              Positioned.fill(child: _player()),
+              // Double-tap the video to show or hide chat.
+              Positioned.fill(child: _player(onDoubleTap: _toggleLandscapeChat)),
               Positioned(
                 top: 8,
                 left: 8,
@@ -254,7 +259,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                 right: 8,
                 child: _OverlayButton(
                   icon: _showChatLandscape ? Icons.chat_rounded : Icons.chat_outlined,
-                  onTap: () => setState(() => _showChatLandscape = !_showChatLandscape),
+                  onTap: _toggleLandscapeChat,
                 ),
               ),
             ],

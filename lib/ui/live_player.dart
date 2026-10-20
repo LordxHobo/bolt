@@ -17,6 +17,7 @@ class LivePlayer extends StatefulWidget {
     required this.createSource,
     required this.sourceKey,
     this.isLive = true,
+    this.onDoubleTap,
   });
 
   /// Builds the stream source; called again on every reload.
@@ -25,6 +26,9 @@ class LivePlayer extends StatefulWidget {
   /// Changes when a different stream should be played.
   final String sourceKey;
   final bool isLive;
+
+  /// Double-tapping the video (used in full screen to show/hide chat).
+  final VoidCallback? onDoubleTap;
 
   @override
   State<LivePlayer> createState() => LivePlayerState();
@@ -348,6 +352,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       child = GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _toggleControls,
+        onDoubleTap: widget.onDoubleTap,
         child: Stack(
           fit: StackFit.expand,
           children: [
