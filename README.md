@@ -137,6 +137,15 @@ Public apps have no client secret, so nothing secret is stored in the app.
 The Kick client secret is stored in the phone's secure storage (Keychain /
 Android Keystore).
 
+### twitch.tv sign-in (ad-free with your subs)
+
+Relay asks Twitch for streams without a login by default, so Twitch serves
+ads even on channels you're subscribed to. In Settings → **twitch.tv (for
+playback)**, sign in on the twitch.tv page; Relay then requests streams as
+you, so your subscriptions (and Turbo) remove ads like on the website. If
+Twitch still sends an ad and no ad-free copy is available, Relay plays the
+ad instead of freezing.
+
 ### Kick follow list
 
 Kick's official API can't list the channels you follow yet, so Relay uses the

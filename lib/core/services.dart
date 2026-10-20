@@ -1,5 +1,6 @@
 import '../kick/kick_auth.dart';
 import '../twitch/twitch_auth.dart';
+import '../twitch/twitch_web_auth.dart';
 import 'settings.dart';
 
 /// App-wide singletons. This is a single-user app, so plain globals keep
@@ -11,6 +12,6 @@ class Services {
 
   static Future<void> init() async {
     await settings.load();
-    await Future.wait([twitch.load(), kick.load()]);
+    await Future.wait([twitch.load(), kick.load(), TwitchWebAuth.load()]);
   }
 }

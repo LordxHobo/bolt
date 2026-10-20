@@ -310,6 +310,13 @@ class LiveProxy {
         }
         _setAdState(AdState.blocking);
       } else {
+        // No ad-free copy anywhere: play the break as Twitch sends it rather
+        // than freezing until it's over.
+        candidates
+          ..clear()
+          ..addAll([
+            for (final s in playlist.segments) _candidate(s, source.isAd(s) ? 'ad' : 'main'),
+          ]);
         _setAdState(AdState.waiting);
       }
       // Put backup segments in time order with the main ones.

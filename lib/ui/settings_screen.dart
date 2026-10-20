@@ -10,6 +10,8 @@ import '../twitch/twitch_auth.dart';
 import '../kick/kick_follows.dart';
 import 'kick_login_screen.dart';
 import 'kick_web_login_screen.dart';
+import 'twitch_web_login_screen.dart';
+import '../twitch/twitch_web_auth.dart';
 import 'widgets.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -129,6 +131,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: kick.isLoggedIn
                     ? TextButton(onPressed: () => kick.logout(), child: const Text('Log out'))
                     : FilledButton(onPressed: _loginKick, child: const Text('Log in')),
+              ),
+              ListTile(
+                leading: const _Logo(color: Color(0xFF9146FF), letter: 'T'),
+                title: const Text('twitch.tv (for playback)'),
+                subtitle: Text(TwitchWebAuth.isSignedIn
+                    ? "Signed in. Streams are requested as you, so your subs and Turbo apply"
+                    : "Sign in so channels you're subscribed to play without ads"),
+                isThreeLine: true,
+                trailing: TwitchWebAuth.isSignedIn
+                    ? TextButton(onPressed: TwitchWebAuth.signOut, child: const Text('Sign out'))
+                    : FilledButton(
+                        onPressed: () => Navigator.of(context).push<bool>(
+                          MaterialPageRoute(builder: (_) => const TwitchWebLoginScreen()),
+                        ),
+                        child: const Text('Sign in'),
+                      ),
               ),
               ListTile(
                 leading: const _Logo(color: Color(0xFF53FC18), letter: 'K', dark: true),

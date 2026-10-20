@@ -206,7 +206,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       if (c.isBuffering && _wantPlaying) {
         _stalledFor++;
         final inApp = WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
-        if (_stalledFor >= 10 && inApp) {
+        // Not during ad breaks: a restart would only fetch a new pre-roll ad.
+        final adFree = proxy.adState.value == AdState.none;
+        if (_stalledFor >= 10 && inApp && adFree) {
           // Stuck for 10 s: restart at the live edge (not while in
           // picture-in-picture, which a restart would close).
           _stalledFor = 0;
@@ -371,15 +373,17 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
                 valueListenable: proxy.adState,
                 builder: (context, state, _) => switch (state) {
                   AdState.none => const SizedBox.shrink(),
+                  // Bottom left, above LIVE: the top corners hold the back
+                  // and chat buttons in full screen.
                   AdState.blocking => const Positioned(
-                      top: 8,
+                      bottom: 44,
                       left: 8,
                       child: _Chip(text: 'Blocking ads', icon: Icons.shield_outlined),
                     ),
                   AdState.waiting => const Positioned(
-                      top: 8,
+                      bottom: 44,
                       left: 8,
-                      child: _Chip(text: 'Ad break, waiting for the stream', icon: Icons.hourglass_top_rounded),
+                      child: _Chip(text: 'Ad break (no ad-free copy available)', icon: Icons.campaign_outlined),
                     ),
                 },
               ),
