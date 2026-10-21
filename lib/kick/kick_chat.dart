@@ -11,6 +11,7 @@ import '../core/models.dart';
 import '../core/net.dart';
 import 'kick_api.dart';
 import 'kick_auth.dart';
+import 'kick_follows.dart';
 import 'kick_web.dart';
 
 /// Kick chat. Since October 2026 Kick serves chat from its own Centrifugo
@@ -53,7 +54,9 @@ class KickChatClient implements ChatClient {
   Stream<ChatEvent> get events => _events.stream;
 
   @override
-  bool get canSend => auth.isLoggedIn && broadcasterUserId != null;
+  // The kick.com login sends like the website; the older developer-app
+  // login uses Kick's official API.
+  bool get canSend => KickFollows.isSignedIn || (auth.isLoggedIn && broadcasterUserId != null);
 
   void _emit(ChatEvent e) {
     if (!_events.isClosed) _events.add(e);
@@ -262,12 +265,16 @@ class KickChatClient implements ChatClient {
 
   @override
   Future<void> send(String text) async {
-    final id = broadcasterUserId;
-    if (!auth.isLoggedIn || id == null) {
-      throw ApiException('Log in to Kick in Settings to chat.');
-    }
     final clean = text.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
     if (clean.isEmpty) return;
+    if (KickFollows.isSignedIn) {
+      await KickFollows.sendChat(chatroomId: chatroomId, content: clean);
+      return;
+    }
+    final id = broadcasterUserId;
+    if (!auth.isLoggedIn || id == null) {
+      throw ApiException('Sign in to Kick in Settings to chat.');
+    }
     // Kick echoes our message back through the realtime connection.
     await auth.sendChat(broadcasterUserId: id, content: clean);
   }

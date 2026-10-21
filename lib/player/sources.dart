@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../core/net.dart';
-import '../twitch/twitch_web_auth.dart';
+import '../core/services.dart';
 import 'hls.dart';
 
 class StreamOfflineException implements Exception {
@@ -139,7 +139,8 @@ class TwitchSource extends StreamSource {
 
   // Signed in to twitch.tv: ask as you on the normal site player, so your
   // subscriptions/Turbo apply. Otherwise vaft's choice.
-  String get _mainPlayerType => !blockAds || TwitchWebAuth.isSignedIn ? 'site' : 'popout';
+  String get _mainPlayerType =>
+      !blockAds || Services.twitch.playbackToken != null ? 'site' : 'popout';
 
   @override
   Future<MasterInfo> loadMaster() => _master(_mainPlayerType);
@@ -228,7 +229,7 @@ class TwitchSource extends StreamSource {
       'platform': playerType == 'autoplay' ? 'android' : 'web',
     };
     Future<Map<String, dynamic>?> query(Map<String, Object> body) async {
-      final auth = TwitchWebAuth.token;
+      final auth = Services.twitch.playbackToken;
       Future<http.Response> send(String? auth) => httpClient
           .post(
             Uri.parse('https://gql.twitch.tv/gql'),
@@ -245,7 +246,7 @@ class TwitchSource extends StreamSource {
       var res = await send(auth);
       if (auth != null && res.statusCode == 401) {
         // The twitch.tv login expired: forget it and carry on without.
-        await TwitchWebAuth.invalidate();
+        await Services.twitch.logout(revoke: false);
         res = await send(null);
       }
       final json = jsonDecode(utf8.decode(res.bodyBytes));

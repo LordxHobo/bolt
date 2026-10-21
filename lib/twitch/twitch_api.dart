@@ -8,13 +8,14 @@ class TwitchGql {
   static const webClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
   static Future<Map<String, dynamic>> _query(
-      String query, Map<String, dynamic> variables) async {
+      String query, Map<String, dynamic> variables, {String? token}) async {
     final res = await httpClient.post(
       Uri.parse('https://gql.twitch.tv/gql'),
       headers: {
         'Client-ID': webClientId,
         'Content-Type': 'application/json',
         'User-Agent': browserUserAgent,
+        if (token != null) 'Authorization': 'OAuth $token',
       },
       body: jsonEncode({'query': query, 'variables': variables}),
     );
@@ -55,6 +56,36 @@ class TwitchGql {
       }
     }
     return results;
+  }
+
+  /// Channels [login] follows, via Twitch's site API (works with the
+  /// twitch.tv login).
+  static Future<List<String>> getFollowedLogins({
+    required String login,
+    required String token,
+    int max = 2000,
+  }) async {
+    final out = <String>[];
+    String? cursor;
+    while (out.length < max) {
+      final data = await _query(
+        r'query($login: String!, $after: Cursor) { user(login: $login) { '
+        r'follows(first: 100, after: $after) { edges { cursor node { login } } '
+        r'pageInfo { hasNextPage } } } }',
+        {'login': login, 'after': cursor},
+        token: token,
+      );
+      final follows = jMap(jMap(data['user'])?['follows']);
+      final edges = jList(follows?['edges']);
+      for (final e in edges) {
+        final l = jStr(jMap(jMap(e)?['node'])?['login']);
+        if (l != null) out.add(l);
+      }
+      final more = jMap(follows?['pageInfo'])?['hasNextPage'] == true;
+      cursor = edges.isEmpty ? null : jStr(jMap(edges.last)?['cursor']);
+      if (!more || cursor == null) break;
+    }
+    return out;
   }
 
   static Future<ChannelInfo?> getChannel(String login) async {

@@ -8,7 +8,7 @@ import 'kick_web.dart';
 
 class KickSignedOutException implements Exception {
   @override
-  String toString() => 'Your kick.com sign-in has expired. Sign in again in Settings.';
+  String toString() => 'Your Kick sign-in has expired. Sign in again in Settings.';
 }
 
 /// The channels you follow on Kick.
@@ -25,6 +25,41 @@ class KickFollows {
 
   static bool get isSignedIn => Services.settings.prefs.getBool('kickWebSignedIn') ?? false;
 
+  /// Your Kick name, when known.
+  static String? get username => Services.settings.prefs.getString('kickWebUsername');
+
+  static Future<void> _loadUsername() async {
+    try {
+      final res = await KickWeb.instance.getSignedIn('https://kick.com/api/v1/user');
+      final m = jMap(res.json);
+      final name = jStr(m?['username']) ?? jStr(jMap(m?['user'])?['username']);
+      if (res.ok && name != null) {
+        await Services.settings.prefs.setString('kickWebUsername', name);
+      }
+    } catch (e) {
+      debugPrint('Kick username lookup failed: $e');
+    }
+  }
+
+  /// Sends a chat message the way kick.com does, with your kick.com login.
+  static Future<void> sendChat({required int chatroomId, required String content}) async {
+    final res = await KickWeb.instance.requestSignedIn(
+      'https://kick.com/api/v2/messages/send/$chatroomId',
+      method: 'POST',
+      jsonBody: {'content': content, 'type': 'message'},
+    );
+    if (res.status == 401) {
+      await _setSignedIn(false);
+      throw KickSignedOutException();
+    }
+    if (!res.ok) {
+      final m = jMap(res.json);
+      final detail = jStr(m?['message']) ?? jStr(jMap(m?['status'])?['message']) ?? '';
+      throw ApiException('Kick refused the message (HTTP ${res.status}'
+          '${detail.isEmpty ? '' : ': $detail'})');
+    }
+  }
+
   static Future<void> _setSignedIn(bool v) async {
     await Services.settings.prefs.setBool('kickWebSignedIn', v);
     Services.settings.notifyChanged();
@@ -35,6 +70,7 @@ class KickFollows {
     await KickWeb.instance.reloadPage();
     try {
       await load();
+      await _loadUsername();
       await _setSignedIn(true);
       return true;
     } catch (e) {
@@ -51,6 +87,7 @@ class KickFollows {
       debugPrint('Clearing kick.com cookies failed: $e');
     }
     await KickWeb.instance.reloadPage();
+    await Services.settings.prefs.remove('kickWebUsername');
     await _setSignedIn(false);
   }
 

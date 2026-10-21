@@ -1,17 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../core/models.dart';
 import '../core/services.dart';
 import '../core/settings.dart';
 import '../twitch/adblock.dart';
-import '../twitch/twitch_auth.dart';
 import '../kick/kick_follows.dart';
-import 'kick_login_screen.dart';
 import 'kick_web_login_screen.dart';
 import 'twitch_web_login_screen.dart';
-import '../twitch/twitch_web_auth.dart';
 import 'widgets.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -23,60 +18,27 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _settings = Services.settings;
-  late final _twitchId = TextEditingController(text: _settings.twitchClientId);
-  late final _kickId = TextEditingController(text: _settings.kickClientId);
-  late final _kickSecret = TextEditingController(text: _settings.kickClientSecret);
-  late final _kickRedirect = TextEditingController(text: _settings.kickRedirectUri);
   late final _customUrl = TextEditingController(text: _settings.customScriptUrl);
   bool _updatingScript = false;
 
   @override
   void dispose() {
-    _twitchId.dispose();
-    _kickId.dispose();
-    _kickSecret.dispose();
-    _kickRedirect.dispose();
     _customUrl.dispose();
     super.dispose();
   }
 
-  Future<void> _saveCredentials() async {
-    await _settings.setTwitchClientId(_twitchId.text);
-    await _settings.setKickCredentials(
-      clientId: _kickId.text,
-      clientSecret: _kickSecret.text,
-      redirectUri: _kickRedirect.text,
-    );
-    if (!mounted) return;
-    FocusScope.of(context).unfocus();
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Saved')));
-  }
+  Future<void> _signInTwitch() => Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => const TwitchWebLoginScreen()),
+      );
 
-  Future<void> _loginTwitch() async {
-    await _saveCredentials();
-    if (!mounted) return;
-    if (_settings.twitchClientId.isEmpty) {
-      showError(context, 'Enter your Twitch Client ID first.');
-      return;
-    }
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const _TwitchLoginDialog(),
-    );
-  }
+  Future<void> _signInKick() => Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => const KickWebLoginScreen()),
+      );
 
-  Future<void> _loginKick() async {
-    await _saveCredentials();
-    if (!mounted) return;
-    if (!Services.kick.isConfigured) {
-      showError(context, 'Enter your Kick Client ID and Client Secret first.');
-      return;
-    }
-    await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const KickLoginScreen()),
-    );
+  Future<void> _signOutKick() async {
+    await KickFollows.signOut();
+    // Also end the older developer-app login, if there is one.
+    if (Services.kick.isLoggedIn) await Services.kick.logout();
   }
 
   Future<void> _updateScript() async {
@@ -102,7 +64,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       listenable: Listenable.merge([_settings, Services.twitch, Services.kick]),
       builder: (context, _) {
         final twitch = Services.twitch;
-        final kick = Services.kick;
         final theme = Theme.of(context);
         final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
         final cachedVersion = AdBlockScripts.versionOf(AdBlockScripts.cachedFor(_settings));
@@ -115,76 +76,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ListTile(
                 leading: const _Logo(color: Color(0xFF9146FF), letter: 'T'),
                 title: const Text('Twitch'),
-                subtitle: Text(twitch.isLoggedIn
-                    ? 'Logged in as ${twitch.login}'
-                    : 'Log in to chat and see who you follow'),
-                trailing: twitch.isLoggedIn
-                    ? TextButton(onPressed: () => twitch.logout(), child: const Text('Log out'))
-                    : FilledButton(onPressed: _loginTwitch, child: const Text('Log in')),
+                subtitle: Text(twitch.isWebLogin
+                    ? 'Signed in as ${twitch.login}'
+                    : twitch.isLoggedIn
+                        ? 'Signed in as ${twitch.login} (old login). Sign in again so your subs remove ads'
+                        : "Chat, your follows, and no ads on channels you're subscribed to"),
+                trailing: twitch.isWebLogin
+                    ? TextButton(onPressed: () => twitch.logout(), child: const Text('Sign out'))
+                    : FilledButton(onPressed: _signInTwitch, child: const Text('Sign in')),
               ),
               ListTile(
                 leading: const _Logo(color: Color(0xFF53FC18), letter: 'K', dark: true),
                 title: const Text('Kick'),
-                subtitle: Text(kick.isLoggedIn
-                    ? 'Logged in${kick.username == null ? '' : ' as ${kick.username}'}'
-                    : 'Log in to chat'),
-                trailing: kick.isLoggedIn
-                    ? TextButton(onPressed: () => kick.logout(), child: const Text('Log out'))
-                    : FilledButton(onPressed: _loginKick, child: const Text('Log in')),
-              ),
-              ListTile(
-                leading: const _Logo(color: Color(0xFF9146FF), letter: 'T'),
-                title: const Text('twitch.tv (for playback)'),
-                subtitle: Text(TwitchWebAuth.isSignedIn
-                    ? "Signed in. Streams are requested as you, so your subs and Turbo apply"
-                    : "Sign in so channels you're subscribed to play without ads"),
-                isThreeLine: true,
-                trailing: TwitchWebAuth.isSignedIn
-                    ? TextButton(onPressed: TwitchWebAuth.signOut, child: const Text('Sign out'))
-                    : FilledButton(
-                        onPressed: () => Navigator.of(context).push<bool>(
-                          MaterialPageRoute(builder: (_) => const TwitchWebLoginScreen()),
-                        ),
-                        child: const Text('Sign in'),
-                      ),
-              ),
-              ListTile(
-                leading: const _Logo(color: Color(0xFF53FC18), letter: 'K', dark: true),
-                title: const Text('kick.com (follow list)'),
                 subtitle: Text(KickFollows.isSignedIn
-                    ? 'Signed in. Your Kick follows show on the home screen'
-                    : 'Sign in on kick.com to see who you follow. Uses an unofficial endpoint, so it may break'),
-                isThreeLine: !KickFollows.isSignedIn,
+                    ? 'Signed in${KickFollows.username == null ? '' : ' as ${KickFollows.username}'}'
+                    : 'Chat and your follows'),
                 trailing: KickFollows.isSignedIn
-                    ? TextButton(onPressed: KickFollows.signOut, child: const Text('Sign out'))
-                    : FilledButton(
-                        onPressed: () => Navigator.of(context).push<bool>(
-                          MaterialPageRoute(builder: (_) => const KickWebLoginScreen()),
-                        ),
-                        child: const Text('Sign in'),
-                      ),
-              ),
-              const SectionHeader('Developer apps'),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'Logging in needs your own (free) developer apps. '
-                  'Twitch: dev.twitch.tv/console, client type “Public”. '
-                  'Kick: kick.com/settings/developer, with the redirect URL below. '
-                  'Watching and reading chat work without them.',
-                  style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                ),
-              ),
-              _field(_twitchId, 'Twitch Client ID'),
-              _field(_kickId, 'Kick Client ID'),
-              _field(_kickSecret, 'Kick Client Secret', obscure: true),
-              _field(_kickRedirect, 'Kick Redirect URL'),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton.tonal(onPressed: _saveCredentials, child: const Text('Save')),
-                ),
+                    ? TextButton(onPressed: _signOutKick, child: const Text('Sign out'))
+                    : FilledButton(onPressed: _signInKick, child: const Text('Sign in')),
               ),
               const SectionHeader('Player'),
               for (final mode in TwitchPlayerMode.values)
@@ -339,95 +248,4 @@ class _Logo extends StatelessWidget {
             style: TextStyle(
                 color: dark ? Colors.black : Colors.white, fontWeight: FontWeight.w800)),
       );
-}
-
-class _TwitchLoginDialog extends StatefulWidget {
-  const _TwitchLoginDialog();
-
-  @override
-  State<_TwitchLoginDialog> createState() => _TwitchLoginDialogState();
-}
-
-class _TwitchLoginDialogState extends State<_TwitchLoginDialog> {
-  TwitchDeviceCode? _code;
-  String? _error;
-  bool _cancelled = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _start();
-  }
-
-  @override
-  void dispose() {
-    _cancelled = true;
-    super.dispose();
-  }
-
-  Future<void> _start() async {
-    try {
-      final code = await Services.twitch.startDeviceFlow();
-      if (!mounted) return;
-      setState(() => _code = code);
-      final ok = await Services.twitch.waitForApproval(code, isCancelled: () => _cancelled);
-      if (!mounted) return;
-      if (ok) {
-        Navigator.of(context).pop();
-      } else {
-        setState(() => _error = 'The code expired. Close this and try again.');
-      }
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final code = _code;
-    final theme = Theme.of(context);
-    return AlertDialog(
-      title: const Text('Log in to Twitch'),
-      content: _error != null
-          ? Text(_error!)
-          : code == null
-              ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Open the activation page and enter this code:'),
-                    const SizedBox(height: 16),
-                    SelectableText(
-                      code.userCode,
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 4,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton.icon(
-                      onPressed: () => Clipboard.setData(ClipboardData(text: code.userCode)),
-                      icon: const Icon(Icons.copy_rounded, size: 18),
-                      label: const Text('Copy code'),
-                    ),
-                    const SizedBox(height: 8),
-                    const LinearProgressIndicator(),
-                    const SizedBox(height: 8),
-                    Text('Waiting for you to approve…', style: theme.textTheme.bodySmall),
-                  ],
-                ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        if (code != null && _error == null)
-          FilledButton(
-            onPressed: () => launchUrl(Uri.parse(code.verificationUri),
-                mode: LaunchMode.externalApplication),
-            child: const Text('Open twitch.tv/activate'),
-          ),
-      ],
-    );
-  }
 }

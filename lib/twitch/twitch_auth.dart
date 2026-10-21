@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/models.dart';
 import '../core/net.dart';
@@ -39,7 +40,41 @@ class TwitchAuth extends ChangeNotifier {
   String? login;
   String? userId;
 
+  /// The app the token belongs to. Set for the twitch.tv website login
+  /// (Twitch's own web client); null for the older developer-app login.
+  String? clientId;
+
   bool get isLoggedIn => accessToken != null && login != null;
+
+  /// Signed in through twitch.tv (one login for playback, chat and follows).
+  bool get isWebLogin => accessToken != null && clientId != null && refreshToken == null;
+
+  /// Token for requesting streams as you (only the twitch.tv login works for
+  /// that), so your subscriptions and Turbo apply.
+  String? get playbackToken => isWebLogin ? accessToken : null;
+
+  /// Signs in with the twitch.tv website login (its "auth-token" cookie).
+  Future<void> signInWithWebToken(String token) async {
+    final res = await httpClient.get(
+      Uri.parse('https://id.twitch.tv/oauth2/validate'),
+      headers: {'Authorization': 'OAuth $token'},
+    );
+    if (res.statusCode != 200) {
+      throw ApiException('Twitch did not accept the login (HTTP ${res.statusCode})');
+    }
+    final j = jMap(jsonDecode(res.body))!;
+    accessToken = token;
+    refreshToken = null;
+    final expiresIn = jInt(j['expires_in']);
+    expiresAt = expiresIn == null || expiresIn <= 0
+        ? null
+        : DateTime.now().add(Duration(seconds: expiresIn));
+    login = jStr(j['login']);
+    userId = jStr(j['user_id']);
+    clientId = jStr(j['client_id']);
+    await _save();
+    notifyListeners();
+  }
 
   Future<void> load() async {
     try {
@@ -52,6 +87,7 @@ class TwitchAuth extends ChangeNotifier {
       expiresAt = exp == null ? null : DateTime.fromMillisecondsSinceEpoch(exp);
       login = j['login'] as String?;
       userId = j['userId'] as String?;
+      clientId = j['clientId'] as String?;
     } catch (_) {
       // Corrupt storage: start logged out.
     }
@@ -70,6 +106,7 @@ class TwitchAuth extends ChangeNotifier {
         'exp': expiresAt?.millisecondsSinceEpoch,
         'login': login,
         'userId': userId,
+        'clientId': clientId,
       }),
     );
   }
@@ -166,6 +203,16 @@ class TwitchAuth extends ChangeNotifier {
   /// Returns null (and logs out) when the session can't be recovered.
   Future<String?> validAccessToken() async {
     if (accessToken == null) return null;
+    if (isWebLogin) {
+      // twitch.tv logins last a long time and can't be refreshed; when one
+      // stops working, requests fail and the user signs in again.
+      final exp = expiresAt;
+      if (exp != null && DateTime.now().isAfter(exp)) {
+        await logout(revoke: false);
+        return null;
+      }
+      return accessToken;
+    }
     final exp = expiresAt;
     if (exp != null && DateTime.now().isBefore(exp.subtract(const Duration(minutes: 5)))) {
       return accessToken;
@@ -200,7 +247,8 @@ class TwitchAuth extends ChangeNotifier {
 
   Future<void> logout({bool revoke = true}) async {
     final token = accessToken;
-    if (revoke && token != null && settings.twitchClientId.isNotEmpty) {
+    final web = isWebLogin;
+    if (revoke && !web && token != null && settings.twitchClientId.isNotEmpty) {
       unawaited(httpClient
           .post(
             Uri.parse('https://id.twitch.tv/oauth2/revoke'),
@@ -214,7 +262,17 @@ class TwitchAuth extends ChangeNotifier {
     expiresAt = null;
     login = null;
     userId = null;
+    clientId = null;
     await _save();
+    if (web) {
+      // Also sign out of the twitch.tv page so the next sign-in asks again.
+      try {
+        await CookieManager.instance().deleteCookies(url: WebUri('https://www.twitch.tv'));
+        await CookieManager.instance().deleteCookies(url: WebUri('https://twitch.tv'));
+      } catch (e) {
+        debugPrint('Clearing twitch.tv cookies failed: $e');
+      }
+    }
     notifyListeners();
   }
 }

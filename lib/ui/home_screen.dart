@@ -178,7 +178,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Future<void> _loadTwitchFollows() async {
     final twitch = Services.twitch;
-    final clientId = Services.settings.twitchClientId;
+    // twitch.tv login: Twitch's own web client; older login: your dev app.
+    final clientId = twitch.clientId ?? Services.settings.twitchClientId;
     if (!twitch.isLoggedIn || clientId.isEmpty) {
       _twitchFollows = [];
       _twitchError = null;
@@ -190,13 +191,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       final userId = twitch.userId;
       if (token == null || userId == null) {
         _twitchFollows = [];
-        _twitchError = 'Your Twitch login has expired. Log in again in Settings.';
+        _twitchError = 'Your Twitch sign-in has expired. Sign in again in Settings.';
       } else {
-        final logins = await TwitchHelix.getFollowedLogins(
-          clientId: clientId,
-          accessToken: token,
-          userId: userId,
-        );
+        List<String> logins;
+        try {
+          logins = await TwitchHelix.getFollowedLogins(
+            clientId: clientId,
+            accessToken: token,
+            userId: userId,
+          );
+        } catch (e) {
+          // Helix can refuse the twitch.tv login; Twitch's own site API won't.
+          final me = twitch.login;
+          if (!twitch.isWebLogin || me == null) rethrow;
+          debugPrint('Helix follows failed ($e), using GQL');
+          logins = await TwitchGql.getFollowedLogins(login: me, token: token);
+        }
         // Helix only lists names; one GQL lookup per 100 adds live status,
         // viewers and avatars.
         _twitchFollows = await TwitchGql.getChannels(logins);
@@ -387,7 +397,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   // ---------------------------------------------------------------- notices
 
   String? get _twitchNotice {
-    if (!Services.twitch.isLoggedIn) return 'Log in to Twitch in Settings to see who you follow there.';
+    if (!Services.twitch.isLoggedIn) return 'Sign in to Twitch in Settings to see who you follow there.';
     return _twitchError;
   }
 
@@ -395,8 +405,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (_kickError != null) return _kickError;
     if (!KickFollows.isSignedIn) {
       return _kickExpired
-          ? 'Your kick.com sign-in has expired. Sign in again in Settings.'
-          : 'Sign in to kick.com in Settings to see who you follow there.';
+          ? 'Your Kick sign-in has expired. Sign in again in Settings.'
+          : 'Sign in to Kick in Settings to see who you follow there.';
     }
     return null;
   }

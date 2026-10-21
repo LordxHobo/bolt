@@ -133,7 +133,10 @@ class KickWeb {
   /// GET [url] as the signed-in kick.com user (website login, not the
   /// developer-app login). Always runs inside the kick.com page so the
   /// session cookie applies; the site also expects it as a Bearer token.
-  Future<KickResponse> getSignedIn(String url) async {
+  Future<KickResponse> getSignedIn(String url) => requestSignedIn(url);
+
+  /// Like [getSignedIn], for any method (e.g. POST to send a chat message).
+  Future<KickResponse> requestSignedIn(String url, {String method = 'GET', Object? jsonBody}) async {
     KickResponse last = const KickResponse(0, '');
     for (var attempt = 0; attempt < 3; attempt++) {
       await _ensureWebView();
@@ -146,12 +149,23 @@ class KickWeb {
         final result = await controller.callAsyncJavaScript(
           functionBody: '''
             const m = document.cookie.match(/(?:^|; )session_token=([^;]+)/);
+            const x = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]+)/);
             const headers = { 'Accept': 'application/json' };
             if (m) headers['Authorization'] = 'Bearer ' + decodeURIComponent(m[1]);
-            const r = await fetch(url, { headers: headers, credentials: 'include' });
+            if (x) headers['X-XSRF-TOKEN'] = decodeURIComponent(x[1]);
+            const opts = { method: method, headers: headers, credentials: 'include' };
+            if (body !== null) {
+              headers['Content-Type'] = 'application/json';
+              opts.body = body;
+            }
+            const r = await fetch(url, opts);
             return { status: r.status, body: await r.text(), signedIn: !!m };
           ''',
-          arguments: {'url': url},
+          arguments: {
+            'url': url,
+            'method': method,
+            'body': jsonBody == null ? null : jsonEncode(jsonBody),
+          },
         );
         final value = result?.value;
         if (value is Map) {

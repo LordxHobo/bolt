@@ -187,7 +187,7 @@ class _ChatViewState extends State<ChatView> {
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Text(
-                'Log in to ${widget.platform.label} in Settings to chat',
+                'Sign in to ${widget.platform.label} in Settings to chat',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),

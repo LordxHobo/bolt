@@ -107,53 +107,17 @@ Each CI build is signed with a fresh debug key, so to update you may need to
 uninstall the old version first. To avoid that, add your own signing key
 (see Flutter's [Android signing guide](https://docs.flutter.dev/deployment/android#sign-the-app)).
 
-## Setting up logins (optional)
+## Signing in (optional)
 
-Watching and reading chat work without any setup. Logging in (to send chat
-messages, and to see the Twitch channels you follow) needs your own free
-developer apps, because Twitch and Kick both require one. You then paste the
-IDs into **Settings → Developer apps** in Relay.
+Watching and reading chat work without signing in. In Settings → Accounts
+there's one sign-in per platform, on the platform's own login page:
 
-### Twitch
+- **Twitch**: chat, your follow list, and streams are requested as you, so
+  channels you're subscribed to (or everything, with Turbo) play without ads.
+- **Kick**: chat and your follow list. Kick has no official API for follows,
+  so Relay uses the endpoints kick.com itself uses; they may change.
 
-1. Go to <https://dev.twitch.tv/console/apps> → **Register Your Application**.
-2. Name: anything. OAuth Redirect URL: `http://localhost`.
-   Category: Application Integration. **Client Type: Public.**
-3. Copy the **Client ID** into Relay → Settings → Twitch Client ID.
-4. Tap **Log in** next to Twitch. Relay shows a code; open twitch.tv/activate,
-   enter it, and approve.
-
-Public apps have no client secret, so nothing secret is stored in the app.
-
-### Kick
-
-1. Turn on two-factor authentication on your Kick account (Kick requires it
-   for developer apps).
-2. Go to <https://kick.com/settings/developer> and create an app.
-   Redirect URL: `http://localhost/auth/callback`.
-   Enable the `user:read` and `chat:write` scopes.
-3. Copy the **Client ID** and **Client Secret** into Relay → Settings.
-4. Tap **Log in** next to Kick and sign in on the page that opens.
-
-The Kick client secret is stored in the phone's secure storage (Keychain /
-Android Keystore).
-
-### twitch.tv sign-in (ad-free with your subs)
-
-Relay asks Twitch for streams without a login by default, so Twitch serves
-ads even on channels you're subscribed to. In Settings → **twitch.tv (for
-playback)**, sign in on the twitch.tv page; Relay then requests streams as
-you, so your subscriptions (and Turbo) remove ads like on the website. If
-Twitch still sends an ad and no ad-free copy is available, Relay plays the
-ad instead of freezing.
-
-### Kick follow list
-
-Kick's official API can't list the channels you follow yet, so Relay uses the
-one kick.com's website uses. In Settings → **kick.com (follow list)**, tap
-**Sign in**, log in on the kick.com page, then tap **Done**. This is separate
-from the developer-app login above and needs no Client ID. It's unofficial,
-so it may stop working if Kick changes its site.
+No developer apps or Client IDs are needed anymore.
 
 ## Building locally (optional)
 

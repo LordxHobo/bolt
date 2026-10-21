@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-import '../twitch/twitch_web_auth.dart';
+import '../core/services.dart';
 import 'widgets.dart';
 
-/// Shows twitch.tv's login page. Once you're logged in, Relay keeps the
-/// login so streams are requested as you (no ads where you're subscribed).
+/// Signs in to Twitch on twitch.tv's own login page. That one login is used
+/// for everything: watching (your subs and Turbo apply, so no ads there),
+/// chat and your follow list.
 class TwitchWebLoginScreen extends StatefulWidget {
   const TwitchWebLoginScreen({super.key});
 
@@ -15,6 +16,7 @@ class TwitchWebLoginScreen extends StatefulWidget {
 
 class _TwitchWebLoginScreenState extends State<TwitchWebLoginScreen> {
   double _progress = 0;
+  bool _busy = false;
   bool _done = false;
 
   static const _safariUserAgent =
@@ -22,14 +24,27 @@ class _TwitchWebLoginScreenState extends State<TwitchWebLoginScreen> {
       '(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 
   Future<void> _check({bool manual = false}) async {
-    if (_done) return;
-    final ok = await TwitchWebAuth.captureFromCookies();
+    if (_done || _busy) return;
+    String? token;
+    try {
+      final cookie = await CookieManager.instance()
+          .getCookie(url: WebUri('https://www.twitch.tv'), name: 'auth-token');
+      token = cookie?.value?.toString();
+    } catch (_) {}
     if (!mounted) return;
-    if (ok) {
+    if (token == null || token.isEmpty) {
+      if (manual) showError(context, "You're not logged in yet. Log in on the page, then tap Done.");
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await Services.twitch.signInWithWebToken(token);
       _done = true;
-      Navigator.of(context).pop(true);
-    } else if (manual) {
-      showError(context, "You're not logged in yet. Log in on the page, then tap Done.");
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -38,8 +53,15 @@ class _TwitchWebLoginScreenState extends State<TwitchWebLoginScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sign in to twitch.tv'),
-        actions: [TextButton(onPressed: () => _check(manual: true), child: const Text('Done'))],
+        title: const Text('Sign in to Twitch'),
+        actions: [
+          _busy
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              : TextButton(onPressed: () => _check(manual: true), child: const Text('Done')),
+        ],
         bottom: _progress < 1
             ? PreferredSize(
                 preferredSize: const Size.fromHeight(2),
@@ -54,8 +76,8 @@ class _TwitchWebLoginScreenState extends State<TwitchWebLoginScreen> {
             color: theme.colorScheme.surfaceContainer,
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
             child: Text(
-              'Log in with your Twitch account. Relay then asks for streams as you, so '
-              "channels you're subscribed to play without ads (and everything does with Turbo).",
+              'Log in with your Twitch account. Relay uses it to chat, show who you follow, and '
+              "watch as you, so channels you're subscribed to play without ads.",
               style: theme.textTheme.bodySmall,
             ),
           ),
