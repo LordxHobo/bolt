@@ -18,6 +18,7 @@ class LivePlayer extends StatefulWidget {
     required this.sourceKey,
     this.isLive = true,
     this.onDoubleTap,
+    this.latencyRightInset = 8,
   });
 
   /// Builds the stream source; called again on every reload.
@@ -29,6 +30,10 @@ class LivePlayer extends StatefulWidget {
 
   /// Double-tapping the video (used in full screen to show/hide chat).
   final VoidCallback? onDoubleTap;
+
+  /// Distance of the latency readout from the right edge (full screen moves
+  /// it left of the chat button).
+  final double latencyRightInset;
 
   @override
   State<LivePlayer> createState() => LivePlayerState();
@@ -430,8 +435,8 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
             ),
             if (Services.settings.showLatency)
               Positioned(
-                top: 8,
-                right: 8,
+                top: 14,
+                right: widget.latencyRightInset,
                 child: GestureDetector(
                   // Tap the readout for the raw numbers behind it.
                   onTap: () => setState(() => _details = !_details),

@@ -136,7 +136,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
   void _toggleLandscapeChat() => setState(() => _showChatLandscape = !_showChatLandscape);
 
-  Widget _player({VoidCallback? onDoubleTap}) {
+  Widget _player({VoidCallback? onDoubleTap, double latencyRightInset = 8}) {
     if (_useWebPlayer) {
       return TwitchPlayer(key: _webKey, login: ref.login);
     }
@@ -149,6 +149,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
         // finds out by itself otherwise.
         isLive: !_lookupOk || (_info?.isLive ?? true),
         onDoubleTap: onDoubleTap,
+        latencyRightInset: latencyRightInset,
         createSource: () => TwitchSource(ref.login, blockAds: blockAds),
       );
     }
@@ -169,6 +170,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       sourceKey: 'kick:${playbackUrl ?? ''}:${Services.settings.lowLatency}',
       isLive: info.isLive && playbackUrl != null,
       onDoubleTap: onDoubleTap,
+      latencyRightInset: latencyRightInset,
       createSource: () => KickSource(playbackUrl!),
     );
   }
@@ -245,7 +247,11 @@ class _ChannelScreenState extends State<ChannelScreen> {
           child: Stack(
             children: [
               // Double-tap the video to show or hide chat.
-              Positioned.fill(child: _player(onDoubleTap: _toggleLandscapeChat)),
+              // The chat button sits top right (36 px at 8 px from the
+              // edge), so the latency readout goes just left of it.
+              Positioned.fill(
+                child: _player(onDoubleTap: _toggleLandscapeChat, latencyRightInset: 52),
+              ),
               Positioned(
                 top: 8,
                 left: 8,
