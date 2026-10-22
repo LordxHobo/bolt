@@ -70,6 +70,18 @@ enum TwitchPlayerMode {
   final String description;
 }
 
+/// Which video player Relay uses on iPhone (Android always uses ExoPlayer).
+enum PlayerEngine {
+  apple('Apple player', 'Most reliable. Plays each piece of video once it has fully downloaded.'),
+  ivs('IVS player (lower latency)',
+      "The player the Twitch app uses. Plays video while it's still downloading, so it "
+      'gets closer to live, especially on streams that send long pieces.');
+
+  const PlayerEngine(this.label, this.description);
+  final String label;
+  final String description;
+}
+
 /// The home screen views from the menu.
 enum HomeView { favorites, following, kick, twitch }
 
@@ -92,6 +104,10 @@ class Settings extends ChangeNotifier {
   bool showLatency = true;
 
   HomeView homeView = HomeView.following;
+
+  /// Default iPhone player, and per-channel choices ("twitch:login" -> name).
+  PlayerEngine playerEngine = PlayerEngine.apple;
+  Map<String, PlayerEngine> playerEngineFor = {};
 
   double chatTextScale = 1.0;
   bool showTimestamps = false;
@@ -123,6 +139,19 @@ class Settings extends ChangeNotifier {
     relayAdBlock = _prefs.getBool('relayAdBlock') ?? true;
     lowLatency = _prefs.getBool('lowLatency') ?? true;
     showLatency = _prefs.getBool('showLatency') ?? true;
+    final engineName = _prefs.getString('playerEngine');
+    playerEngine = PlayerEngine.values.firstWhere((e) => e.name == engineName,
+        orElse: () => PlayerEngine.apple);
+    try {
+      final raw = jsonDecode(_prefs.getString('playerEngineFor') ?? '{}') as Map<String, dynamic>;
+      playerEngineFor = {
+        for (final e in raw.entries)
+          for (final engine in PlayerEngine.values)
+            if (engine.name == e.value) e.key: engine,
+      };
+    } catch (_) {
+      playerEngineFor = {};
+    }
     final viewName = _prefs.getString('homeView');
     homeView = HomeView.values.firstWhere((v) => v.name == viewName,
         orElse: () => HomeView.following);
@@ -176,6 +205,29 @@ class Settings extends ChangeNotifier {
   Future<void> setCustomScriptUrl(String v) async {
     customScriptUrl = v.trim();
     await _prefs.setString('customScriptUrl', customScriptUrl);
+    notifyListeners();
+  }
+
+  Future<void> setPlayerEngine(PlayerEngine v) async {
+    playerEngine = v;
+    await _prefs.setString('playerEngine', v.name);
+    notifyListeners();
+  }
+
+  /// The player for [channel]: its own choice, or the default.
+  PlayerEngine engineFor(ChannelRef channel) => playerEngineFor[channel.key] ?? playerEngine;
+
+  /// Remembers a player for one channel (null: back to the default).
+  Future<void> setEngineFor(ChannelRef channel, PlayerEngine? engine) async {
+    if (engine == null || engine == playerEngine) {
+      playerEngineFor.remove(channel.key);
+    } else {
+      playerEngineFor[channel.key] = engine;
+    }
+    await _prefs.setString(
+      'playerEngineFor',
+      jsonEncode({for (final e in playerEngineFor.entries) e.key: e.value.name}),
+    );
     notifyListeners();
   }
 

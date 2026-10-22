@@ -23,6 +23,7 @@ class LivePlayer extends StatefulWidget {
     this.mediaTitle,
     this.mediaArtist,
     this.mediaArtwork,
+    this.ivs = false,
   });
 
   /// Builds the stream source; called again on every reload.
@@ -47,6 +48,9 @@ class LivePlayer extends StatefulWidget {
   final String? mediaTitle;
   final String? mediaArtist;
   final String? mediaArtwork;
+
+  /// Use the IVS player (iPhone). Part of [sourceKey], so a change restarts.
+  final bool ivs;
 
   @override
   State<LivePlayer> createState() => LivePlayerState();
@@ -171,6 +175,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
           // video straight from Twitch/Kick; Android's needs the relay to
           // see what it downloads.
           proxySegments: defaultTargetPlatform != TargetPlatform.iOS,
+          prefetchAsTags: widget.ivs && defaultTargetPlatform == TargetPlatform.iOS,
         );
         _proxy = proxy;
         url = await proxy.start();
@@ -180,7 +185,11 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       if (session != _session || !mounted) return;
       // Start ~4 s from the end of the playlist (the last listed segment is
       // still being recorded); catch-up then closes in once there's buffer.
-      final controller = LiveVideo.create(url, liveOffset: _lowLatency ? 4.0 : null);
+      final controller = LiveVideo.create(
+        url,
+        liveOffset: _lowLatency ? 4.0 : null,
+        ivs: widget.ivs,
+      );
       _startedAt = DateTime.now();
       _wantPlaying = true;
       _controller = controller;
@@ -266,7 +275,10 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     // estimate it from what the player downloaded.
     final date = c.playheadDate;
     double? reading;
-    if (date != null) {
+    final measured = c.liveLatency;
+    if (measured != null) {
+      reading = measured;
+    } else if (date != null) {
       final now = DateTime.now().toUtc().add(proxy.serverOffset);
       final seconds = now.difference(date).inMilliseconds / 1000;
       if (seconds >= 0 && seconds < 120) reading = seconds;
@@ -293,8 +305,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     final latency = _recent.reduce((a, b) => a + b) / _recent.length;
     if (mounted) setState(() => _latency = latency);
 
-    if (!_lowLatency || proxy.adState.value != AdState.none) {
-      _setSpeed(1.0);
+    if (!_lowLatency || proxy.adState.value != AdState.none || c.managesLatency) {
+      // (The IVS player keeps itself close to live.)
+      if (!c.managesLatency) _setSpeed(1.0);
       return;
     }
     // Catch up by jumping forward through video that's already loaded, not

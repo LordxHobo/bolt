@@ -97,6 +97,21 @@ jobs:
       - name: Generate app icons
         run: dart run flutter_launcher_icons
 
+      - name: Fetch Amazon IVS Player SDK
+        # The low-latency player. Amazon doesn't publish it on CocoaPods, so
+        # it's downloaded here and bundled by packages/relay_native_player.
+        run: |
+          IVS_VERSION=1.56.0
+          curl -sSfL "https://player.live-video.net/${IVS_VERSION}/AmazonIVSPlayer.xcframework.zip" -o "$RUNNER_TEMP/ivs.zip"
+          rm -rf "$RUNNER_TEMP/ivs"
+          unzip -q "$RUNNER_TEMP/ivs.zip" -d "$RUNNER_TEMP/ivs"
+          FRAMEWORK=$(find "$RUNNER_TEMP/ivs" -type d -name 'AmazonIVSPlayer.xcframework' | head -n 1)
+          test -n "$FRAMEWORK" || { echo "AmazonIVSPlayer.xcframework not found in the download"; exit 1; }
+          mkdir -p packages/relay_native_player/ios/Frameworks
+          rm -rf packages/relay_native_player/ios/Frameworks/AmazonIVSPlayer.xcframework
+          cp -R "$FRAMEWORK" packages/relay_native_player/ios/Frameworks/
+          ls packages/relay_native_player/ios/Frameworks/AmazonIVSPlayer.xcframework
+
       - name: Build iOS app (no signing)
         run: flutter build ios --release --no-codesign --dart-define=RELAY_BUILD=${GITHUB_SHA::7}
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/models.dart';
@@ -108,6 +109,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: Text(mode.description),
                   onTap: () => _settings.setTwitchPlayer(mode),
                 ),
+              if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text('iPhone player', style: theme.textTheme.titleSmall),
+                ),
+                for (final engine in PlayerEngine.values)
+                  ListTile(
+                    leading: Icon(
+                      _settings.playerEngine == engine
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: _settings.playerEngine == engine ? theme.colorScheme.primary : null,
+                    ),
+                    title: Text(engine.label),
+                    subtitle: Text(engine.description),
+                    onTap: () => _settings.setPlayerEngine(engine),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(
+                    'This is the default. Any channel can use the other one: ⋮ on the channel.'
+                    '${_settings.playerEngineFor.isEmpty ? '' : ' Channels with their own choice: ${_settings.playerEngineFor.length}.'}',
+                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                  ),
+                ),
+              ],
               SwitchListTile(
                 title: const Text('Low latency mode'),
                 subtitle: const Text(

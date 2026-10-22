@@ -1,15 +1,22 @@
 import AVFoundation
 import AVKit
+import AmazonIVSPlayer
 import Flutter
 import MediaPlayer
 import UIKit
 
-/// Relay's iPhone live player: a plain AVPlayer shown in a Flutter platform
-/// view, so iOS can move it into picture-in-picture by itself when you swipe
-/// home, and so Relay can read the exact stream time on screen
-/// (AVPlayerItem.currentDate) for the latency readout.
+/// Relay's iPhone live players, shown in a Flutter platform view:
+///
+/// - "apple": AVPlayer. Reliable; plays each video segment once it has fully
+///   downloaded.
+/// - "ivs": Amazon IVS Player (what the Twitch app uses). Plays a segment
+///   while it's still downloading, so it can sit closer to live, especially
+///   on streams with long segments.
+///
+/// Both get picture-in-picture, the lock screen / Control Center player and
+/// background audio from [RelayPlayback].
 public class RelayNativePlayerPlugin: NSObject, FlutterPlugin {
-  static var players: [Int: RelayPlayer] = [:]
+  static var players: [Int: RelayPlayback] = [:]
   static var nextId = 1
 
   public static func register(with registrar: FlutterPluginRegistrar) {
@@ -28,9 +35,11 @@ public class RelayNativePlayerPlugin: NSObject, FlutterPlugin {
       }
       let id = RelayNativePlayerPlugin.nextId
       RelayNativePlayerPlugin.nextId += 1
-      RelayNativePlayerPlugin.players[id] = RelayPlayer(
-        url: url,
-        liveOffset: (args["liveOffset"] as? NSNumber)?.doubleValue)
+      let engine = args["engine"] as? String ?? "apple"
+      let player: RelayPlayback = engine == "ivs"
+        ? RelayIVSPlayer(url: url)
+        : RelayAVPlayer(url: url, liveOffset: (args["liveOffset"] as? NSNumber)?.doubleValue)
+      RelayNativePlayerPlugin.players[id] = player
       result(id)
       return
     }
@@ -52,7 +61,7 @@ public class RelayNativePlayerPlugin: NSObject, FlutterPlugin {
     case "setRate":
       player.setRate((args["rate"] as? NSNumber)?.floatValue ?? 1)
     case "setMuted":
-      player.player.isMuted = (args["muted"] as? Bool) ?? false
+      player.setMuted((args["muted"] as? Bool) ?? false)
     case "startPip":
       player.startPip()
     case "seekBy":
@@ -71,57 +80,25 @@ public class RelayNativePlayerPlugin: NSObject, FlutterPlugin {
   }
 }
 
-final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
-  let player: AVPlayer
-  let item: AVPlayerItem
-  private var rate: Float = 1
-  private var pip: AVPictureInPictureController?
-  weak var layer: AVPlayerLayer?
-  private var statusObservation: NSKeyValueObservation?
-  private var appObservers: [NSObjectProtocol] = []
-  private var startedPipOnLeave = false
+// MARK: - Shared behaviour
 
+/// What both players share: picture-in-picture (also started when leaving
+/// the app), the lock screen / Control Center player, and keeping the sound
+/// going in the background. Subclasses fill in the player-specific parts.
+class RelayPlayback: NSObject, AVPictureInPictureControllerDelegate {
   /// The player the lock screen / Control Center controls act on.
-  static weak var current: RelayPlayer?
+  static weak var current: RelayPlayback?
+
+  var pip: AVPictureInPictureController?
   private(set) var pausedByUser = false
+  private var appObservers: [NSObjectProtocol] = []
   private var nowPlaying: [String: Any] = [:]
   private var artworkUrl: String?
-  private var rateObservation: NSKeyValueObservation?
   private var detachedForBackground = false
 
-  init(url: URL, liveOffset: Double?) {
-    item = AVPlayerItem(url: url)
-    if #available(iOS 13.0, *), let offset = liveOffset {
-      // Start this close to the live edge (AVPlayer's default is about three
-      // segment durations). Relay's catch-up keeps it there afterwards.
-      item.configuredTimeOffsetFromLive = CMTime(seconds: offset, preferredTimescale: 1000)
-    }
-    player = AVPlayer(playerItem: item)
+  override init() {
     super.init()
-    RelayPlayer.claimAudioSession()
-
-    // At the live edge AVPlayer can't play faster than real time; if it
-    // starts waiting for data while sped up it may never resume, so drop
-    // back to normal speed whenever it has to wait.
-    statusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-      guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
-      DispatchQueue.main.async {
-        // Only when the buffer has really run dry, not during AVPlayer's
-        // brief check after a speed change.
-        guard let self = self, self.rate > 1, self.bufferAhead() < 1 else { return }
-        self.setRate(1)
-      }
-    }
-
-    // Picture-in-picture when you leave Relay. iOS can do this by itself
-    // (canStartPictureInPictureAutomaticallyFromInline), but not reliably
-    // for a player inside a Flutter view, so start it ourselves as the app
-    // is about to leave the screen, and close it again when you come back.
-    // Keep the lock screen / Control Center player in sync with play/pause.
-    rateObservation = player.observe(\.rate, options: [.new]) { [weak self] _, _ in
-      DispatchQueue.main.async { self?.publishNowPlaying() }
-    }
-
+    RelayPlayback.claimAudioSession()
     let center = NotificationCenter.default
     // In the background without picture-in-picture (e.g. phone locked), iOS
     // pauses a player that's showing video. Detaching the video keeps the
@@ -133,29 +110,16 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     })
     appObservers.append(center.addObserver(
       forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
-    ) { [weak self] _ in self?.reattachVideo() })
+    ) { [weak self] _ in self?.reattachAfterBackground() })
+    // Picture-in-picture when you leave Relay. iOS can do this by itself, but
+    // not reliably for a player inside a Flutter view, so start it as the
+    // app is about to leave the screen and close it when you come back.
     appObservers.append(center.addObserver(
       forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
     ) { [weak self] _ in self?.startPipOnLeave() })
     appObservers.append(center.addObserver(
       forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
     ) { [weak self] _ in self?.stopPipOnReturn() })
-  }
-
-  private func startPipOnLeave() {
-    guard let pip = pip, !pip.isPictureInPictureActive, player.rate > 0 || player.timeControlStatus != .paused else { return }
-    RelayPlayer.claimAudioSession()
-    if pip.isPictureInPicturePossible {
-      startedPipOnLeave = true
-      pip.startPictureInPicture()
-    }
-  }
-
-  private func stopPipOnReturn() {
-    guard let pip = pip else { return }
-    // Back in Relay: show the video in the app again.
-    if pip.isPictureInPictureActive { pip.stopPictureInPicture() }
-    startedPipOnLeave = false
   }
 
   /// Needed for sound with the silent switch on, for playback in the
@@ -167,13 +131,24 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     try? session.setActive(true)
   }
 
-  func attach(_ layer: AVPlayerLayer) {
-    layer.player = player
-    self.layer = layer
-    guard AVPictureInPictureController.isPictureInPictureSupported(),
-          let controller = AVPictureInPictureController(playerLayer: layer) else { return }
+  // Player-specific parts.
+  var isPlaying: Bool { false }
+  func startPlayback() {}
+  func pausePlayback() {}
+  func setRate(_ value: Float) {}
+  func setMuted(_ muted: Bool) {}
+  func seekBy(_ seconds: Double) {}
+  func playerState() -> [String: Any] { [:] }
+  func makeView(frame: CGRect) -> UIView { UIView(frame: frame) }
+  /// Removes the video from the screen so the sound can keep playing in the
+  /// background. Returns false if there was nothing to detach.
+  func detachVideo() -> Bool { false }
+  func reattachVideo() {}
+  func disposePlayer() {}
+
+  func setUpPip(_ controller: AVPictureInPictureController?) {
+    guard let controller = controller else { return }
     if #available(iOS 14.2, *) {
-      // Swiping home while the stream plays moves it into picture-in-picture.
       controller.canStartPictureInPictureAutomaticallyFromInline = true
     }
     controller.delegate = self
@@ -182,33 +157,49 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
 
   func play() {
     pausedByUser = false
-    RelayPlayer.current = self
+    RelayPlayback.current = self
     RelayRemoteCommands.setUp()
-    RelayPlayer.claimAudioSession()
-    if #available(iOS 16.0, *) { player.defaultRate = rate }
-    player.rate = rate
+    RelayPlayback.claimAudioSession()
+    startPlayback()
     publishNowPlaying()
   }
 
   func pause(byUser: Bool) {
     if byUser { pausedByUser = true }
-    player.pause()
+    pausePlayback()
     publishNowPlaying()
+  }
+
+  func startPip() {
+    RelayPlayback.claimAudioSession()
+    if let pip = pip, pip.isPictureInPicturePossible {
+      pip.startPictureInPicture()
+    }
+  }
+
+  private func startPipOnLeave() {
+    guard let pip = pip, !pip.isPictureInPictureActive, isPlaying else { return }
+    RelayPlayback.claimAudioSession()
+    if pip.isPictureInPicturePossible { pip.startPictureInPicture() }
+  }
+
+  private func stopPipOnReturn() {
+    // Back in Relay: show the video in the app again.
+    if let pip = pip, pip.isPictureInPictureActive { pip.stopPictureInPicture() }
   }
 
   private func keepPlayingInBackground() {
     guard UIApplication.shared.applicationState == .background,
           !(pip?.isPictureInPictureActive ?? false),
-          !pausedByUser, let layer = layer, layer.player != nil else { return }
+          !pausedByUser, detachVideo() else { return }
     detachedForBackground = true
-    layer.player = nil
-    player.play()
+    startPlayback()
   }
 
-  private func reattachVideo() {
+  private func reattachAfterBackground() {
     guard detachedForBackground else { return }
     detachedForBackground = false
-    layer?.player = player
+    reattachVideo()
   }
 
   /// What the lock screen and Control Center show: stream title, streamer
@@ -239,26 +230,124 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
   }
 
   func publishNowPlaying() {
-    guard RelayPlayer.current === self, !nowPlaying.isEmpty else { return }
+    guard RelayPlayback.current === self, !nowPlaying.isEmpty else { return }
     var info = nowPlaying
-    info[MPNowPlayingInfoPropertyPlaybackRate] = player.rate > 0 ? 1.0 : 0.0
+    info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
     info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
     MPNowPlayingInfoCenter.default().nowPlayingInfo = info
   }
 
-  func startPip() {
-    RelayPlayer.claimAudioSession()
-    if let pip = pip, pip.isPictureInPicturePossible {
-      pip.startPictureInPicture()
+  func state() -> [String: Any] {
+    var s = playerState()
+    s["pip"] = pip?.isPictureInPictureActive ?? false
+    s["pausedByUser"] = pausedByUser
+    s["pipPossible"] = pip?.isPictureInPicturePossible ?? false
+    s["pipSupported"] = AVPictureInPictureController.isPictureInPictureSupported()
+    var auto = false
+    if #available(iOS 14.2, *) { auto = pip?.canStartPictureInPictureAutomaticallyFromInline ?? false }
+    s["pipAuto"] = auto
+    return s
+  }
+
+  func dispose() {
+    if RelayPlayback.current === self {
+      RelayPlayback.current = nil
+      MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+    for observer in appObservers { NotificationCenter.default.removeObserver(observer) }
+    appObservers.removeAll()
+    pip?.stopPictureInPicture()
+    pip = nil
+    disposePlayer()
+  }
+
+  // Coming back from picture-in-picture: the player is still on screen.
+  func pictureInPictureController(
+    _ pictureInPictureController: AVPictureInPictureController,
+    restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+  ) {
+    completionHandler(true)
+  }
+}
+
+// MARK: - Apple player (AVPlayer)
+
+final class RelayAVPlayer: RelayPlayback {
+  let player: AVPlayer
+  let item: AVPlayerItem
+  private var rate: Float = 1
+  weak var layer: AVPlayerLayer?
+  private var statusObservation: NSKeyValueObservation?
+  private var rateObservation: NSKeyValueObservation?
+
+  init(url: URL, liveOffset: Double?) {
+    item = AVPlayerItem(url: url)
+    if #available(iOS 13.0, *), let offset = liveOffset {
+      // Start this close to the live edge (AVPlayer's default is about three
+      // segment durations). Relay's catch-up keeps it there afterwards.
+      item.configuredTimeOffsetFromLive = CMTime(seconds: offset, preferredTimescale: 1000)
+    }
+    player = AVPlayer(playerItem: item)
+    super.init()
+
+    // At the live edge AVPlayer can't play faster than real time; if it
+    // starts waiting for data while sped up it may never resume, so drop
+    // back to normal speed whenever its buffer has really run dry.
+    statusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+      guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return }
+      DispatchQueue.main.async {
+        guard let self = self, self.rate > 1, self.bufferAhead() < 1 else { return }
+        self.setRate(1)
+      }
+    }
+    // Keep the lock screen / Control Center player in sync with play/pause.
+    rateObservation = player.observe(\.rate, options: [.new]) { [weak self] _, _ in
+      DispatchQueue.main.async { self?.publishNowPlaying() }
     }
   }
 
-  func setRate(_ value: Float) {
+  override var isPlaying: Bool { player.rate > 0 || player.timeControlStatus != .paused }
+
+  override func makeView(frame: CGRect) -> UIView {
+    let view = RelayPlayerUIView(frame: frame)
+    view.backgroundColor = .black
+    view.playerLayer.videoGravity = .resizeAspect
+    view.playerLayer.player = player
+    layer = view.playerLayer
+    if AVPictureInPictureController.isPictureInPictureSupported() {
+      setUpPip(AVPictureInPictureController(playerLayer: view.playerLayer))
+    }
+    return view
+  }
+
+  override func startPlayback() {
+    if #available(iOS 16.0, *) { player.defaultRate = rate }
+    player.rate = rate
+  }
+
+  override func pausePlayback() {
+    player.pause()
+  }
+
+  override func setMuted(_ muted: Bool) {
+    player.isMuted = muted
+  }
+
+  override func detachVideo() -> Bool {
+    guard let layer = layer, layer.player != nil else { return false }
+    layer.player = nil
+    return true
+  }
+
+  override func reattachVideo() {
+    layer?.player = player
+  }
+
+  override func setRate(_ value: Float) {
     rate = value
     if #available(iOS 16.0, *) { player.defaultRate = value }
     // playImmediately: a plain rate change makes AVPlayer first check it can
-    // keep up at that speed, which on a live stream it never thinks it can,
-    // so it would sit "waiting" instead of catching up.
+    // keep up at that speed, which on a live stream it never thinks it can.
     if player.rate != 0 || player.timeControlStatus != .paused {
       player.playImmediately(atRate: value)
     }
@@ -266,7 +355,7 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
 
   /// Jumps forward within the loaded video (catching up to live without
   /// changing speed). Exact seek, so it lands where asked.
-  func seekBy(_ seconds: Double) {
+  override func seekBy(_ seconds: Double) {
     guard seconds > 0 else { return }
     let target = CMTimeAdd(item.currentTime(), CMTime(seconds: seconds, preferredTimescale: 1000))
     item.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero, completionHandler: nil)
@@ -287,7 +376,7 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     return ahead
   }
 
-  func state() -> [String: Any] {
+  override func playerState() -> [String: Any] {
     var s: [String: Any] = [:]
     switch item.status {
     case .readyToPlay: s["status"] = "ready"
@@ -314,42 +403,123 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     s["rate"] = Double(player.rate)
     s["width"] = Double(item.presentationSize.width)
     s["height"] = Double(item.presentationSize.height)
-    s["pip"] = pip?.isPictureInPictureActive ?? false
-    s["pausedByUser"] = pausedByUser
-    s["pipPossible"] = pip?.isPictureInPicturePossible ?? false
-    s["pipSupported"] = AVPictureInPictureController.isPictureInPictureSupported()
-    var auto = false
-    if #available(iOS 14.2, *) { auto = pip?.canStartPictureInPictureAutomaticallyFromInline ?? false }
-    s["pipAuto"] = auto
+    s["engine"] = "apple"
     return s
   }
 
-  func dispose() {
+  override func disposePlayer() {
     statusObservation?.invalidate()
     statusObservation = nil
     rateObservation?.invalidate()
     rateObservation = nil
-    if RelayPlayer.current === self {
-      RelayPlayer.current = nil
-      MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-    }
-    for observer in appObservers { NotificationCenter.default.removeObserver(observer) }
-    appObservers.removeAll()
-    pip?.stopPictureInPicture()
-    pip = nil
     player.pause()
     player.replaceCurrentItem(with: nil)
     layer?.player = nil
   }
+}
 
-  // Coming back from picture-in-picture: the player is still on screen.
-  func pictureInPictureController(
-    _ pictureInPictureController: AVPictureInPictureController,
-    restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
-  ) {
-    completionHandler(true)
+// MARK: - Amazon IVS player
+
+final class RelayIVSPlayer: RelayPlayback {
+  let player = IVSPlayer()
+  private weak var view: IVSPlayerView?
+  private var wantsPlay = false
+  private var everReady = false
+
+  init(url: URL) {
+    super.init()
+    // Low-latency mode: plays segments while they download and keeps close
+    // to live by itself (Relay's own catch-up is off for this player).
+    player.setLiveLowLatencyEnabled(true)
+    player.setRebufferToLive(true)
+    player.load(url)
+  }
+
+  override var isPlaying: Bool { player.state == .playing || (wantsPlay && player.state == .buffering) }
+
+  override func makeView(frame: CGRect) -> UIView {
+    let view = IVSPlayerView(frame: frame)
+    view.backgroundColor = .black
+    view.videoGravity = .resizeAspect
+    view.player = player
+    self.view = view
+    if AVPictureInPictureController.isPictureInPictureSupported() {
+      setUpPip(AVPictureInPictureController(ivsPlayerLayer: view.playerLayer))
+    }
+    return view
+  }
+
+  override func startPlayback() {
+    wantsPlay = true
+    // Before the stream is ready, play() is repeated from playerState().
+    player.play()
+  }
+
+  override func pausePlayback() {
+    wantsPlay = false
+    player.pause()
+  }
+
+  override func setMuted(_ muted: Bool) {
+    player.muted = muted
+  }
+
+  override func setRate(_ value: Float) {
+    player.playbackRate = value
+  }
+
+  override func seekBy(_ seconds: Double) {
+    guard seconds > 0 else { return }
+    player.seek(to: CMTimeAdd(player.position, CMTime(seconds: seconds, preferredTimescale: 1000)))
+  }
+
+  override func detachVideo() -> Bool {
+    guard let view = view, view.player != nil else { return false }
+    view.player = nil
+    return true
+  }
+
+  override func reattachVideo() {
+    view?.player = player
+  }
+
+  override func playerState() -> [String: Any] {
+    var s: [String: Any] = [:]
+    let state = player.state
+    if state == .ready || state == .playing { everReady = true }
+    // Loaded but not started yet: start it.
+    if wantsPlay && state == .ready { player.play() }
+    if let error = player.error {
+      s["status"] = "failed"
+      s["error"] = error.localizedDescription
+    } else {
+      s["status"] = everReady ? "ready" : "loading"
+    }
+    let position = player.position.seconds
+    if position.isFinite { s["position"] = Int(position * 1000) }
+    let buffered = player.buffered.seconds
+    if buffered.isFinite && buffered > 0 { s["bufferedEnd"] = Int(buffered * 1000) }
+    let latency = player.liveLatency.seconds
+    if latency.isFinite && latency > 0 { s["latency"] = latency }
+    s["playing"] = state == .playing
+    s["buffering"] = state == .buffering
+    s["muted"] = player.muted
+    s["rate"] = state == .playing ? Double(player.playbackRate) : 0.0
+    s["width"] = Double(player.videoSize.width)
+    s["height"] = Double(player.videoSize.height)
+    s["engine"] = "ivs"
+    s["lowLatency"] = player.isLiveLowLatency
+    return s
+  }
+
+  override func disposePlayer() {
+    wantsPlay = false
+    player.pause()
+    view?.player = nil
   }
 }
+
+// MARK: - Lock screen / Control Center commands
 
 /// Play/pause from the lock screen, Control Center and headphones.
 enum RelayRemoteCommands {
@@ -360,22 +530,22 @@ enum RelayRemoteCommands {
     registered = true
     let center = MPRemoteCommandCenter.shared()
     center.playCommand.addTarget { _ in
-      guard let p = RelayPlayer.current else { return .noActionableNowPlayingItem }
+      guard let p = RelayPlayback.current else { return .noActionableNowPlayingItem }
       p.play()
       return .success
     }
     center.pauseCommand.addTarget { _ in
-      guard let p = RelayPlayer.current else { return .noActionableNowPlayingItem }
+      guard let p = RelayPlayback.current else { return .noActionableNowPlayingItem }
       p.pause(byUser: true)
       return .success
     }
     center.togglePlayPauseCommand.addTarget { _ in
-      guard let p = RelayPlayer.current else { return .noActionableNowPlayingItem }
-      if p.player.rate > 0 { p.pause(byUser: true) } else { p.play() }
+      guard let p = RelayPlayback.current else { return .noActionableNowPlayingItem }
+      if p.isPlaying { p.pause(byUser: true) } else { p.play() }
       return .success
     }
     center.stopCommand.addTarget { _ in
-      guard let p = RelayPlayer.current else { return .noActionableNowPlayingItem }
+      guard let p = RelayPlayback.current else { return .noActionableNowPlayingItem }
       p.pause(byUser: true)
       return .success
     }
@@ -390,20 +560,20 @@ enum RelayRemoteCommands {
   }
 }
 
+// MARK: - Platform view
+
 final class RelayPlayerUIView: UIView {
   override class var layerClass: AnyClass { AVPlayerLayer.self }
   var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
 }
 
 final class RelayPlatformView: NSObject, FlutterPlatformView {
-  private let container: RelayPlayerUIView
+  private let container: UIView
 
   init(frame: CGRect, playerId: Int) {
-    container = RelayPlayerUIView(frame: frame)
+    container = RelayNativePlayerPlugin.players[playerId]?.makeView(frame: frame) ?? UIView(frame: frame)
     container.backgroundColor = .black
-    container.playerLayer.videoGravity = .resizeAspect
     super.init()
-    RelayNativePlayerPlugin.players[playerId]?.attach(container.playerLayer)
   }
 
   func view() -> UIView { container }

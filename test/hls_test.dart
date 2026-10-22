@@ -98,6 +98,19 @@ ad.ts
       expect(text, isNot(contains('cdn.example')));
     });
 
+    test('writes segments still being recorded as prefetch tags', () {
+      final s = Stitcher(window: 6);
+      s.add([seg(0), seg(1), seg(2, name: 'pf2', prefetch: true)]);
+      final pf = Uri.parse('https://cdn.example/pf2.ts');
+      final text = s.render(prefetchTags: {pf}, prefetchTag: '#EXT-X-TWITCH-PREFETCH:');
+      expect(text, contains('#EXT-X-TWITCH-PREFETCH:https://cdn.example/pf2.ts'));
+      expect('#EXTINF'.allMatches(text).length, 2);
+      // Once it's finished (no longer listed as prefetch) it's a normal segment.
+      final later = s.render(prefetchTags: const {});
+      expect('#EXTINF'.allMatches(later).length, 3);
+      expect(later, isNot(contains('PREFETCH')));
+    });
+
     test('maps player position to stream time', () {
       final s = Stitcher(window: 2);
       s.add([seg(0), seg(1), seg(5), seg(6)]);

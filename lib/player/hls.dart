@@ -387,20 +387,34 @@ class Stitcher {
 
   /// The playlist text. [uriFor] can point segments somewhere else (Relay
   /// routes them through its local relay to see what the player downloads).
-  String render({Uri Function(StitchedSegment segment)? uriFor}) {
+  ///
+  /// [prefetchTags]: trailing segments still being recorded (their URIs) are
+  /// written as [prefetchTag] lines instead of normal segments, for players
+  /// that can stream them while they download (IVS).
+  String render({
+    Uri Function(StitchedSegment segment)? uriFor,
+    Set<Uri> prefetchTags = const {},
+    String prefetchTag = '#EXT-X-PREFETCH:',
+  }) {
+    var tail = _segments.length;
+    while (tail > 0 && prefetchTags.contains(_segments[tail - 1].uri)) {
+      tail--;
+    }
+    final segments = _segments.sublist(0, tail);
+    final pending = _segments.sublist(tail);
     final b = StringBuffer()
       ..writeln('#EXTM3U')
       ..writeln('#EXT-X-VERSION:6');
     var maxDur = 1.0;
-    for (final s in _segments) {
+    for (final s in segments) {
       if (s.duration > maxDur) maxDur = s.duration;
     }
     b
       ..writeln('#EXT-X-TARGETDURATION:${maxDur.ceil()}')
-      ..writeln('#EXT-X-MEDIA-SEQUENCE:${_segments.isEmpty ? _nextSeq : _segments.first.seq}')
+      ..writeln('#EXT-X-MEDIA-SEQUENCE:${segments.isEmpty ? _nextSeq : segments.first.seq}')
       ..writeln('#EXT-X-DISCONTINUITY-SEQUENCE:$_discontinuitySeq');
     StitchedSegment? prev;
-    for (final s in _segments) {
+    for (final s in segments) {
       if (s.discontinuity) b.writeln('#EXT-X-DISCONTINUITY');
       final map = s.map;
       if (map != null && (prev == null || s.discontinuity || prev.map != map)) {
@@ -412,6 +426,9 @@ class Stitcher {
         ..writeln('#EXTINF:${s.duration.toStringAsFixed(3)},')
         ..writeln((uriFor == null ? s.uri : uriFor(s)).toString());
       prev = s;
+    }
+    for (final s in pending) {
+      b.writeln('$prefetchTag${uriFor == null ? s.uri : uriFor(s)}');
     }
     return b.toString();
   }

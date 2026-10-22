@@ -34,6 +34,10 @@ abstract class StreamSource {
   /// Whether [segment] is an ad.
   bool isAd(HlsSegment segment) => false;
 
+  /// The playlist tag for segments still being recorded, as this platform's
+  /// own player expects it (used with the IVS player).
+  String get prefetchTag => '#EXT-X-PREFETCH:';
+
   /// Ad-free segments for [variant] from a backup stream, or null when none
   /// is available. Only called while the main stream is showing ads.
   Future<({String source, HlsMediaPlaylist playlist})?> loadBackup(HlsVariant variant) async => null;
@@ -147,6 +151,9 @@ class TwitchSource extends StreamSource {
 
   @override
   bool isAd(HlsSegment segment) => !segment.title.toLowerCase().startsWith('live');
+
+  @override
+  String get prefetchTag => '#EXT-X-TWITCH-PREFETCH:';
 
   @override
   Future<HlsMediaPlaylist> loadVariant(HlsVariant variant) async {

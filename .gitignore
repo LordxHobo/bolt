@@ -19,3 +19,6 @@ build/
 .DS_Store
 Payload/
 *.ipa
+
+# Downloaded by CI (Amazon IVS Player SDK)
+packages/relay_native_player/ios/Frameworks/

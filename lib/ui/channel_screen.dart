@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -176,6 +177,20 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
   void _toggleLandscapeChat() => setState(() => _showChatLandscape = !_showChatLandscape);
 
+  /// iPhone: this channel uses the IVS player (its own choice or the default).
+  bool get _ivs =>
+      defaultTargetPlatform == TargetPlatform.iOS &&
+      Services.settings.engineFor(ref) == PlayerEngine.ivs;
+
+  /// Switches this channel between the Apple and IVS players (remembered).
+  void _togglePlayerEngine() {
+    final next = _ivs ? PlayerEngine.apple : PlayerEngine.ivs;
+    Services.settings.setEngineFor(ref, next);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('${ref.login} now uses the ${next.label}')));
+  }
+
   Widget _player({VoidCallback? onDoubleTap, double latencyRightInset = 8, bool compact = false}) {
     if (_useWebPlayer) {
       return TwitchPlayer(key: _webKey, login: ref.login);
@@ -184,7 +199,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
       final blockAds = Services.settings.relayAdBlock;
       return LivePlayer(
         key: _liveKey,
-        sourceKey: 'twitch:${ref.login}:$blockAds:${Services.settings.lowLatency}',
+        sourceKey: 'twitch:${ref.login}:$blockAds:${Services.settings.lowLatency}:$_ivs',
+        ivs: _ivs,
         // Only trust "offline" when the lookup actually succeeded; the player
         // finds out by itself otherwise.
         isLive: !_lookupOk || (_info?.isLive ?? true),
@@ -211,7 +227,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
     final playbackUrl = info.playbackUrl;
     return LivePlayer(
       key: _liveKey,
-      sourceKey: 'kick:${playbackUrl ?? ''}:${Services.settings.lowLatency}',
+      sourceKey: 'kick:${playbackUrl ?? ''}:${Services.settings.lowLatency}:$_ivs',
+      ivs: _ivs,
       isLive: info.isLive && playbackUrl != null,
       onDoubleTap: onDoubleTap,
       latencyRightInset: latencyRightInset,
@@ -307,6 +324,10 @@ class _ChannelScreenState extends State<ChannelScreen> {
             onBack: () => Navigator.of(context).pop(),
             onReload: _reloadPlayer,
             onOpenInBrowser: _openInBrowser,
+            ivs: _ivs,
+            onTogglePlayer: defaultTargetPlatform == TargetPlatform.iOS && !_useWebPlayer
+                ? _togglePlayerEngine
+                : null,
           ),
           const Divider(height: 1),
           Expanded(child: _chatArea()),
@@ -504,6 +525,8 @@ class _Header extends StatelessWidget {
     required this.onBack,
     required this.onReload,
     required this.onOpenInBrowser,
+    this.ivs = false,
+    this.onTogglePlayer,
   });
 
   final ChannelRef channel;
@@ -511,6 +534,10 @@ class _Header extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onReload;
   final VoidCallback onOpenInBrowser;
+
+  /// iPhone: whether this channel plays with the IVS player, and the switch.
+  final bool ivs;
+  final VoidCallback? onTogglePlayer;
 
   @override
   Widget build(BuildContext context) {
@@ -568,10 +595,18 @@ class _Header extends StatelessWidget {
             onSelected: (v) {
               if (v == 'reload') onReload();
               if (v == 'browser') onOpenInBrowser();
+              if (v == 'player') onTogglePlayer?.call();
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'reload', child: Text('Reload player')),
-              PopupMenuItem(value: 'browser', child: Text('Open in browser')),
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'reload', child: Text('Reload player')),
+              if (onTogglePlayer != null)
+                PopupMenuItem(
+                  value: 'player',
+                  child: Text(ivs
+                      ? 'Use Apple player for this channel'
+                      : 'Use IVS player (lower latency) for this channel'),
+                ),
+              const PopupMenuItem(value: 'browser', child: Text('Open in browser')),
             ],
           ),
         ],

@@ -126,4 +126,16 @@ void _ios() {
   }
   plist.writeAsStringSync(s);
   stdout.writeln('Patched ${plist.path}');
+
+  // The Amazon IVS player needs iOS 14. CocoaPods takes the app's minimum
+  // iOS version from the Xcode project when the Podfile doesn't set one.
+  final project = File('ios/Runner.xcodeproj/project.pbxproj');
+  if (project.existsSync()) {
+    final p = project.readAsStringSync().replaceAllMapped(
+      RegExp(r'IPHONEOS_DEPLOYMENT_TARGET = (\d+)\.(\d+);'),
+      (m) => int.parse(m.group(1)!) < 14 ? 'IPHONEOS_DEPLOYMENT_TARGET = 14.0;' : m.group(0)!,
+    );
+    project.writeAsStringSync(p);
+    stdout.writeln('Patched ${project.path} (iOS 14 minimum)');
+  }
 }

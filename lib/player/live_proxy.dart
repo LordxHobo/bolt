@@ -19,13 +19,25 @@ enum AdState { none, blocking, waiting }
 /// of the stream the player has downloaded (that's what the latency readout
 /// is based on).
 class LiveProxy {
-  LiveProxy(this.source, {this.lowLatency = true, this.proxySegments = true});
+  LiveProxy(this.source, {
+    this.lowLatency = true,
+    this.proxySegments = true,
+    this.prefetchAsTags = false,
+  });
 
   final StreamSource source;
   final bool lowLatency;
 
   /// Route video segments through the relay too (needed for [latencyFor]).
   final bool proxySegments;
+
+  /// Pass segments that are still being recorded on as prefetch tags (for
+  /// the IVS player, which streams them while they download) instead of as
+  /// normal segments.
+  final bool prefetchAsTags;
+
+  /// Per variant: the upstream's current prefetch URIs.
+  final Map<int, Set<Uri>> _prefetchNow = {};
 
   HttpServer? _server;
   List<HlsVariant> _variants = [];
@@ -269,6 +281,12 @@ class LiveProxy {
       if (!stitcher.isEmpty) break;
       await Future<void>.delayed(const Duration(milliseconds: 1500));
     }
+    if (prefetchAsTags) {
+      return stitcher.render(
+        prefetchTags: _prefetchNow[index] ?? const {},
+        prefetchTag: source.prefetchTag,
+      );
+    }
     if (!proxySegments) return stitcher.render();
     final gen = _generation;
     final port = _server!.port;
@@ -334,13 +352,16 @@ class LiveProxy {
     // Prefetch: Twitch lists the next segments before they're complete. Giving
     // them to the player lets it start right at the live edge. Skipped during
     // ads, when the upcoming segments could be ads.
+    _prefetchNow[index] = lowLatency && !hasAds ? playlist.prefetch.toSet() : const {};
     if (lowLatency && !hasAds && playlist.segments.isNotEmpty && playlist.prefetch.isNotEmpty) {
       final last = playlist.segments.last;
       var pdt = last.programDateTime;
       // Only the first one: it's the segment being recorded right now. The
       // next one doesn't exist yet, and listing it makes the player start
       // on video that hasn't been made, so it stalls right after starting.
-      for (final uri in playlist.prefetch.take(1)) {
+      // (The IVS player streams them while they download, so it gets all.)
+      final prefetch = prefetchAsTags ? playlist.prefetch : playlist.prefetch.take(1);
+      for (final uri in prefetch) {
         pdt = pdt?.add(Duration(microseconds: (last.duration * 1000000).round()));
         candidates.add(Candidate(
           uri: uri,

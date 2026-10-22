@@ -10,10 +10,18 @@ import 'package:video_player/video_player.dart';
 /// view (picture-in-picture when you swipe home, exact stream time for the
 /// latency readout); on Android it's the video_player plugin (ExoPlayer).
 abstract class LiveVideo extends ChangeNotifier {
-  static LiveVideo create(Uri url, {double? liveOffset}) =>
+  /// [ivs]: use the Amazon IVS player on iPhone instead of Apple's.
+  static LiveVideo create(Uri url, {double? liveOffset, bool ivs = false}) =>
       defaultTargetPlatform == TargetPlatform.iOS
-          ? _NativeLiveVideo(url, liveOffset: liveOffset)
+          ? _NativeLiveVideo(url, liveOffset: liveOffset, ivs: ivs)
           : _PluginLiveVideo(url);
+
+  /// Seconds behind live, when the player measures it itself (IVS).
+  double? get liveLatency => null;
+
+  /// The player keeps itself close to live (IVS), so Relay's catch-up stays
+  /// out of the way.
+  bool get managesLatency => false;
 
   Future<void> initialize();
   Future<void> play();
@@ -125,12 +133,13 @@ class _PluginLiveVideo extends LiveVideo {
 }
 
 class _NativeLiveVideo extends LiveVideo {
-  _NativeLiveVideo(this.url, {this.liveOffset});
+  _NativeLiveVideo(this.url, {this.liveOffset, this.ivs = false});
 
   static const _channel = MethodChannel(relayNativePlayerChannel);
 
   final Uri url;
   final double? liveOffset;
+  final bool ivs;
   int? _id;
   Timer? _poll;
   bool _closed = false;
@@ -146,6 +155,8 @@ class _NativeLiveVideo extends LiveVideo {
   DateTime? _date;
   double? _rate;
   bool _pausedByUser = false;
+  double? _liveLatency;
+  bool? _ivsLowLatency;
   bool _pipPossible = false;
   String? _pipStatus;
 
@@ -154,6 +165,7 @@ class _NativeLiveVideo extends LiveVideo {
     final id = await _channel.invokeMethod<int>('create', {
       'url': url.toString(),
       if (liveOffset != null) 'liveOffset': liveOffset,
+      'engine': ivs ? 'ivs' : 'apple',
     });
     if (id == null) throw StateError('Could not create the player');
     _id = id;
@@ -198,8 +210,13 @@ class _NativeLiveVideo extends LiveVideo {
     _rate = rate is num ? rate.toDouble() : null;
     _pipPossible = s['pipPossible'] == true;
     _pausedByUser = s['pausedByUser'] == true;
+    final latency = s['latency'];
+    _liveLatency = latency is num && latency > 0 ? latency.toDouble() : null;
+    final ll = s['lowLatency'];
+    _ivsLowLatency = ll is bool ? ll : null;
     String yn(Object? v) => v == true ? 'yes' : 'no';
-    _pipStatus = 'PiP supported ${yn(s['pipSupported'])} · possible ${yn(s['pipPossible'])} · '
+    _pipStatus = '${ivs ? 'IVS player${_ivsLowLatency == null ? '' : ' (low latency ${yn(_ivsLowLatency)})'}' : 'Apple player'}\n'
+        'PiP supported ${yn(s['pipSupported'])} · possible ${yn(s['pipPossible'])} · '
         'auto ${yn(s['pipAuto'])} · active ${yn(s['pip'])}';
     notifyListeners();
   }
@@ -226,6 +243,10 @@ class _NativeLiveVideo extends LiveVideo {
       _call('setNowPlaying', {'title': title, 'artist': artist, 'artwork': artworkUrl});
   @override
   bool get pausedByUser => _pausedByUser;
+  @override
+  double? get liveLatency => _liveLatency;
+  @override
+  bool get managesLatency => ivs;
   @override
   Future<void> seekForward(Duration by) =>
       _call('seekBy', {'seconds': by.inMilliseconds / 1000});

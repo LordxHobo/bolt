@@ -13,6 +13,9 @@ A phone app (Android + iOS) for watching **Twitch and Kick** in one place, with
   automatically (both in Settings → Player)
 - Swipe the video down for an in-app mini player you can drag to any corner,
   with your channel lists underneath (tap it to open the stream again)
+- iPhone: choose between Apple's player and the Amazon IVS player (what the
+  Twitch app uses; plays video while it downloads, so it gets closer to live)
+  in Settings → Player, and per channel from the channel's ⋮ menu
 - iPhone: the stream shows on the lock screen and in Control Center (title,
   streamer, picture, play/pause) and keeps playing with the phone locked
 - iPhone: picture-in-picture when you swipe home while a stream plays, and a
