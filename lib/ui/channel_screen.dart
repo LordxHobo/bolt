@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import '../core/services.dart';
 import '../kick/kick_api.dart';
 import '../twitch/twitch_api.dart';
 import 'chat_view.dart';
+import 'home_screen.dart';
 import '../core/settings.dart';
 import '../player/sources.dart';
 import 'live_player.dart';
@@ -43,6 +45,14 @@ class _ChannelScreenState extends State<ChannelScreen> {
   Timer? _infoTimer;
   bool? _wasLandscape;
   late bool _showChatLandscape = Services.settings.landscapeChat;
+
+  // Mini player: swipe the video down to shrink it into a corner with the
+  // home list underneath. The player widget stays the same, so the stream
+  // keeps playing without reloading.
+  bool _mini = false;
+  _Corner _corner = _Corner.bottomRight;
+  Offset? _dragTopLeft;
+  double _swipe = 0;
 
   ChannelRef get ref => widget.channel;
 
@@ -136,7 +146,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
   void _toggleLandscapeChat() => setState(() => _showChatLandscape = !_showChatLandscape);
 
-  Widget _player({VoidCallback? onDoubleTap, double latencyRightInset = 8}) {
+  Widget _player({VoidCallback? onDoubleTap, double latencyRightInset = 8, bool compact = false}) {
     if (_useWebPlayer) {
       return TwitchPlayer(key: _webKey, login: ref.login);
     }
@@ -150,6 +160,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
         isLive: !_lookupOk || (_info?.isLive ?? true),
         onDoubleTap: onDoubleTap,
         latencyRightInset: latencyRightInset,
+        compact: compact,
         createSource: () => TwitchSource(ref.login, blockAds: blockAds),
       );
     }
@@ -171,6 +182,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       isLive: info.isLive && playbackUrl != null,
       onDoubleTap: onDoubleTap,
       latencyRightInset: latencyRightInset,
+      compact: compact,
       createSource: () => KickSource(playbackUrl!),
     );
   }
@@ -204,7 +216,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final landscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final landscape = MediaQuery.of(context).orientation == Orientation.landscape && !_mini;
     _syncSystemUi(landscape);
     return ListenableBuilder(
       listenable: Services.settings,
@@ -216,11 +228,43 @@ class _ChannelScreenState extends State<ChannelScreen> {
   }
 
   Widget _portrait() {
-    return SafeArea(
-      bottom: false,
+    return LayoutBuilder(builder: (context, box) {
+      final pad = MediaQuery.paddingOf(context);
+      final screen = box.biggest;
+      final full = Rect.fromLTWH(0, pad.top, screen.width, screen.width * 9 / 16);
+      final rect = _mini ? _miniRect(screen, pad) : full;
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: _mini
+                  ? HomeScreen(key: const ValueKey('home'), onOpenChannel: _openFromMini)
+                  : _channelContent(key: const ValueKey('channel'), playerBottom: full.bottom),
+            ),
+          ),
+          AnimatedPositioned(
+            duration: _dragTopLeft != null ? Duration.zero : const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+            child: _playerFrame(screen, pad),
+          ),
+        ],
+      );
+    });
+  }
+
+  /// Header and chat under the full-width player.
+  Widget _channelContent({Key? key, required double playerBottom}) {
+    return ColoredBox(
+      key: key,
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: Column(
         children: [
-          AspectRatio(aspectRatio: 16 / 9, child: _player()),
+          Container(height: playerBottom, color: Colors.black),
           _Header(
             channel: ref,
             info: _info,
@@ -229,15 +273,114 @@ class _ChannelScreenState extends State<ChannelScreen> {
             onOpenInBrowser: _openInBrowser,
           ),
           const Divider(height: 1),
-          Expanded(
-            child: ColoredBox(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              child: _chatArea(),
-            ),
-          ),
+          Expanded(child: _chatArea()),
         ],
       ),
     );
+  }
+
+  /// The video, full width or as the mini player.
+  Widget _playerFrame(Size screen, EdgeInsets pad) {
+    final mini = _mini;
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      // Full size: swipe down to shrink.
+      onVerticalDragStart: mini ? null : (_) => _swipe = 0,
+      onVerticalDragUpdate: mini ? null : (d) => _swipe += d.delta.dy,
+      onVerticalDragEnd: mini
+          ? null
+          : (d) {
+              if (_swipe > 60 || (d.primaryVelocity ?? 0) > 500) {
+                setState(() => _mini = true);
+              }
+              _swipe = 0;
+            },
+      // Mini: tap to open again, drag to any corner.
+      onTap: mini ? () => setState(() => _mini = false) : null,
+      onPanStart: mini
+          ? (_) => setState(() => _dragTopLeft = _cornerRect(_corner, screen, pad).topLeft)
+          : null,
+      onPanUpdate: mini
+          ? (d) => setState(() => _dragTopLeft = (_dragTopLeft ?? Offset.zero) + d.delta)
+          : null,
+      onPanEnd: mini ? (d) => _snapToCorner(d.velocity.pixelsPerSecond, screen) : null,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(mini ? 12 : 0),
+          boxShadow: mini ? const [BoxShadow(color: Colors.black54, blurRadius: 16)] : null,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(mini ? 12 : 0),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ColoredBox(color: Colors.black, child: IgnorePointer(ignoring: mini, child: _player(compact: mini))),
+              if (mini)
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: _OverlayButton(
+                    icon: Icons.close_rounded,
+                    onTap: () => Navigator.of(context).pop(),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Size _miniSize(Size screen) {
+    final w = math.min(screen.width * 0.5, 280.0);
+    return Size(w, w * 9 / 16);
+  }
+
+  Rect _cornerRect(_Corner corner, Size screen, EdgeInsets pad) {
+    final size = _miniSize(screen);
+    const margin = 12.0;
+    final left = corner == _Corner.topLeft || corner == _Corner.bottomLeft
+        ? margin
+        : screen.width - size.width - margin;
+    // Bottom corners stay clear of the "+ Channel" button.
+    final top = corner == _Corner.topLeft || corner == _Corner.topRight
+        ? pad.top + margin
+        : screen.height - pad.bottom - size.height - 88;
+    return Rect.fromLTWH(left, top, size.width, size.height);
+  }
+
+  Rect _miniRect(Size screen, EdgeInsets pad) {
+    final drag = _dragTopLeft;
+    if (drag != null) return drag & _miniSize(screen);
+    return _cornerRect(_corner, screen, pad);
+  }
+
+  /// Lets go of the mini player: it glides to the nearest corner (a flick
+  /// counts towards the direction it was thrown).
+  void _snapToCorner(Offset velocity, Size screen) {
+    final drag = _dragTopLeft;
+    if (drag == null) return;
+    final size = _miniSize(screen);
+    final center = drag + Offset(size.width / 2, size.height / 2) + velocity * 0.15;
+    final left = center.dx < screen.width / 2;
+    final top = center.dy < screen.height / 2;
+    setState(() {
+      _corner = top
+          ? (left ? _Corner.topLeft : _Corner.topRight)
+          : (left ? _Corner.bottomLeft : _Corner.bottomRight);
+      _dragTopLeft = null;
+    });
+  }
+
+  /// A channel picked from the list under the mini player.
+  void _openFromMini(ChannelRef channel, ChannelInfo? info) {
+    if (channel == ref) {
+      setState(() => _mini = false);
+      return;
+    }
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
+      builder: (_) => ChannelScreen(channel: channel, initialInfo: info),
+    ));
   }
 
   Widget _landscape() {
@@ -286,6 +429,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
     );
   }
 }
+
+enum _Corner { topLeft, topRight, bottomLeft, bottomRight }
 
 class _OverlayButton extends StatelessWidget {
   const _OverlayButton({required this.icon, required this.onTap});

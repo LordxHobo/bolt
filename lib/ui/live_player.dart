@@ -19,6 +19,7 @@ class LivePlayer extends StatefulWidget {
     this.isLive = true,
     this.onDoubleTap,
     this.latencyRightInset = 8,
+    this.compact = false,
   });
 
   /// Builds the stream source; called again on every reload.
@@ -34,6 +35,9 @@ class LivePlayer extends StatefulWidget {
   /// Distance of the latency readout from the right edge (full screen moves
   /// it left of the chat button).
   final double latencyRightInset;
+
+  /// Mini player: just the video, no controls or labels.
+  final bool compact;
 
   @override
   State<LivePlayer> createState() => LivePlayerState();
@@ -395,7 +399,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
           children: [
             c.buildView(),
             if (c.isBuffering) const Center(child: CircularProgressIndicator()),
-            if (proxy != null)
+            if (proxy != null && !widget.compact)
               ValueListenableBuilder<AdState>(
                 valueListenable: proxy.adState,
                 builder: (context, state, _) => switch (state) {
@@ -414,6 +418,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
                     ),
                 },
               ),
+            if (!widget.compact)
             AnimatedOpacity(
               opacity: _showControls ? 1 : 0,
               duration: const Duration(milliseconds: 200),
@@ -433,7 +438,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
                 ),
               ),
             ),
-            if (Services.settings.showLatency)
+            if (Services.settings.showLatency && !widget.compact)
               Positioned(
                 top: 14,
                 right: widget.latencyRightInset,

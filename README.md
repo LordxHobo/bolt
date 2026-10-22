@@ -11,6 +11,8 @@ A phone app (Android + iOS) for watching **Twitch and Kick** in one place, with
   Twitch ads (ported from TwitchAdSolutions' `vaft`)
 - Latency readout on the video and a low-latency mode that catches up
   automatically (both in Settings → Player)
+- Swipe the video down for an in-app mini player you can drag to any corner,
+  with your channel lists underneath (tap it to open the stream again)
 - iPhone: picture-in-picture when you swipe home while a stream plays, and a
   full screen button that rotates the video even with rotation lock on
 - Twitch's own web player is still available as a fallback, with the

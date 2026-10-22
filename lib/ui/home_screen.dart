@@ -53,7 +53,12 @@ void _sortEntries(List<_Entry> list, Settings s) {
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.onOpenChannel});
+
+  /// Set when the home list is shown under the mini player: opening a
+  /// channel then switches the mini player's stream instead of stacking a
+  /// second player.
+  final void Function(ChannelRef channel, ChannelInfo? info)? onOpenChannel;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -257,6 +262,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _open(ChannelInfo info) {
+    final open = widget.onOpenChannel;
+    if (open != null) return open(info.ref, info);
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => ChannelScreen(channel: info.ref, initialInfo: info),
     ));
@@ -338,6 +345,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final (ref, favorite) = result;
     if (favorite) {
       if (!Services.settings.isFavorite(ref)) await Services.settings.toggleFavorite(ref);
+    } else if (widget.onOpenChannel != null) {
+      widget.onOpenChannel!(ref, null);
     } else {
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => ChannelScreen(channel: ref),
