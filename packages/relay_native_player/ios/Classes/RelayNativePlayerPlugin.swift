@@ -1,6 +1,7 @@
 import AVFoundation
 import AVKit
 import Flutter
+import MediaPlayer
 import UIKit
 
 /// Relay's iPhone live player: a plain AVPlayer shown in a Flutter platform
@@ -42,7 +43,12 @@ public class RelayNativePlayerPlugin: NSObject, FlutterPlugin {
     case "play":
       player.play()
     case "pause":
-      player.pause()
+      player.pause(byUser: true)
+    case "setNowPlaying":
+      player.setNowPlaying(
+        title: args["title"] as? String,
+        artist: args["artist"] as? String,
+        artworkUrl: args["artwork"] as? String)
     case "setRate":
       player.setRate((args["rate"] as? NSNumber)?.floatValue ?? 1)
     case "setMuted":
@@ -75,6 +81,14 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
   private var appObservers: [NSObjectProtocol] = []
   private var startedPipOnLeave = false
 
+  /// The player the lock screen / Control Center controls act on.
+  static weak var current: RelayPlayer?
+  private(set) var pausedByUser = false
+  private var nowPlaying: [String: Any] = [:]
+  private var artworkUrl: String?
+  private var rateObservation: NSKeyValueObservation?
+  private var detachedForBackground = false
+
   init(url: URL, liveOffset: Double?) {
     item = AVPlayerItem(url: url)
     if #available(iOS 13.0, *), let offset = liveOffset {
@@ -103,7 +117,23 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     // (canStartPictureInPictureAutomaticallyFromInline), but not reliably
     // for a player inside a Flutter view, so start it ourselves as the app
     // is about to leave the screen, and close it again when you come back.
+    // Keep the lock screen / Control Center player in sync with play/pause.
+    rateObservation = player.observe(\.rate, options: [.new]) { [weak self] _, _ in
+      DispatchQueue.main.async { self?.publishNowPlaying() }
+    }
+
     let center = NotificationCenter.default
+    // In the background without picture-in-picture (e.g. phone locked), iOS
+    // pauses a player that's showing video. Detaching the video keeps the
+    // sound going, like the Twitch app; it's reattached on return.
+    appObservers.append(center.addObserver(
+      forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self?.keepPlayingInBackground() }
+    })
+    appObservers.append(center.addObserver(
+      forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+    ) { [weak self] _ in self?.reattachVideo() })
     appObservers.append(center.addObserver(
       forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
     ) { [weak self] _ in self?.startPipOnLeave() })
@@ -151,13 +181,69 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
   }
 
   func play() {
+    pausedByUser = false
+    RelayPlayer.current = self
+    RelayRemoteCommands.setUp()
     RelayPlayer.claimAudioSession()
     if #available(iOS 16.0, *) { player.defaultRate = rate }
     player.rate = rate
+    publishNowPlaying()
   }
 
-  func pause() {
+  func pause(byUser: Bool) {
+    if byUser { pausedByUser = true }
     player.pause()
+    publishNowPlaying()
+  }
+
+  private func keepPlayingInBackground() {
+    guard UIApplication.shared.applicationState == .background,
+          !(pip?.isPictureInPictureActive ?? false),
+          !pausedByUser, let layer = layer, layer.player != nil else { return }
+    detachedForBackground = true
+    layer.player = nil
+    player.play()
+  }
+
+  private func reattachVideo() {
+    guard detachedForBackground else { return }
+    detachedForBackground = false
+    layer?.player = player
+  }
+
+  /// What the lock screen and Control Center show: stream title, streamer
+  /// and their picture, marked as live.
+  func setNowPlaying(title: String?, artist: String?, artworkUrl: String?) {
+    var info: [String: Any] = [:]
+    info[MPMediaItemPropertyTitle] = title ?? artist ?? "Live stream"
+    if let artist = artist { info[MPMediaItemPropertyArtist] = artist }
+    info[MPNowPlayingInfoPropertyIsLiveStream] = true
+    info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.video.rawValue
+    if artworkUrl == self.artworkUrl, let art = nowPlaying[MPMediaItemPropertyArtwork] {
+      info[MPMediaItemPropertyArtwork] = art
+    }
+    nowPlaying = info
+    publishNowPlaying()
+    guard artworkUrl != self.artworkUrl else { return }
+    self.artworkUrl = artworkUrl
+    guard let text = artworkUrl, let url = URL(string: text) else { return }
+    URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+      guard let data = data, let image = UIImage(data: data) else { return }
+      DispatchQueue.main.async {
+        guard let self = self, self.artworkUrl == text else { return }
+        self.nowPlaying[MPMediaItemPropertyArtwork] =
+          MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        self.publishNowPlaying()
+      }
+    }.resume()
+  }
+
+  func publishNowPlaying() {
+    guard RelayPlayer.current === self, !nowPlaying.isEmpty else { return }
+    var info = nowPlaying
+    info[MPNowPlayingInfoPropertyPlaybackRate] = player.rate > 0 ? 1.0 : 0.0
+    info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
+    MPNowPlayingInfoCenter.default().nowPlayingInfo = info
   }
 
   func startPip() {
@@ -229,6 +315,7 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     s["width"] = Double(item.presentationSize.width)
     s["height"] = Double(item.presentationSize.height)
     s["pip"] = pip?.isPictureInPictureActive ?? false
+    s["pausedByUser"] = pausedByUser
     s["pipPossible"] = pip?.isPictureInPicturePossible ?? false
     s["pipSupported"] = AVPictureInPictureController.isPictureInPictureSupported()
     var auto = false
@@ -240,6 +327,12 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
   func dispose() {
     statusObservation?.invalidate()
     statusObservation = nil
+    rateObservation?.invalidate()
+    rateObservation = nil
+    if RelayPlayer.current === self {
+      RelayPlayer.current = nil
+      MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
     for observer in appObservers { NotificationCenter.default.removeObserver(observer) }
     appObservers.removeAll()
     pip?.stopPictureInPicture()
@@ -255,6 +348,45 @@ final class RelayPlayer: NSObject, AVPictureInPictureControllerDelegate {
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
   ) {
     completionHandler(true)
+  }
+}
+
+/// Play/pause from the lock screen, Control Center and headphones.
+enum RelayRemoteCommands {
+  private static var registered = false
+
+  static func setUp() {
+    guard !registered else { return }
+    registered = true
+    let center = MPRemoteCommandCenter.shared()
+    center.playCommand.addTarget { _ in
+      guard let p = RelayPlayer.current else { return .noActionableNowPlayingItem }
+      p.play()
+      return .success
+    }
+    center.pauseCommand.addTarget { _ in
+      guard let p = RelayPlayer.current else { return .noActionableNowPlayingItem }
+      p.pause(byUser: true)
+      return .success
+    }
+    center.togglePlayPauseCommand.addTarget { _ in
+      guard let p = RelayPlayer.current else { return .noActionableNowPlayingItem }
+      if p.player.rate > 0 { p.pause(byUser: true) } else { p.play() }
+      return .success
+    }
+    center.stopCommand.addTarget { _ in
+      guard let p = RelayPlayer.current else { return .noActionableNowPlayingItem }
+      p.pause(byUser: true)
+      return .success
+    }
+    // A live stream has nothing to skip or seek to.
+    for command in [center.nextTrackCommand, center.previousTrackCommand,
+                    center.skipForwardCommand, center.skipBackwardCommand,
+                    center.seekForwardCommand, center.seekBackwardCommand,
+                    center.changePlaybackPositionCommand] {
+      command.isEnabled = false
+    }
+    UIApplication.shared.beginReceivingRemoteControlEvents()
   }
 }
 

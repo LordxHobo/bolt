@@ -191,6 +191,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
         onDoubleTap: onDoubleTap,
         latencyRightInset: latencyRightInset,
         compact: compact,
+        mediaTitle: _info?.title,
+        mediaArtist: _info?.displayName ?? ref.login,
+        mediaArtwork: _info?.avatarUrl,
         createSource: () => TwitchSource(ref.login, blockAds: blockAds),
       );
     }
@@ -213,6 +216,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
       onDoubleTap: onDoubleTap,
       latencyRightInset: latencyRightInset,
       compact: compact,
+      mediaTitle: info.title,
+      mediaArtist: info.displayName,
+      mediaArtwork: info.avatarUrl,
       createSource: () => KickSource(playbackUrl!),
     );
   }

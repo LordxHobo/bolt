@@ -20,6 +20,9 @@ class LivePlayer extends StatefulWidget {
     this.onDoubleTap,
     this.latencyRightInset = 8,
     this.compact = false,
+    this.mediaTitle,
+    this.mediaArtist,
+    this.mediaArtwork,
   });
 
   /// Builds the stream source; called again on every reload.
@@ -38,6 +41,12 @@ class LivePlayer extends StatefulWidget {
 
   /// Mini player: just the video, no controls or labels.
   final bool compact;
+
+  /// Shown on the lock screen and in Control Center: stream title, streamer
+  /// and their picture.
+  final String? mediaTitle;
+  final String? mediaArtist;
+  final String? mediaArtwork;
 
   @override
   State<LivePlayer> createState() => LivePlayerState();
@@ -85,7 +94,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     // iOS pauses the video when Relay goes to the background without
     // picture-in-picture; carry on when you come back.
     final c = _controller;
-    if (state == AppLifecycleState.resumed && c != null && _wantPlaying && !c.isPlaying) {
+    // Not if it was paused from the lock screen or Control Center.
+    if (state == AppLifecycleState.resumed && c != null && _wantPlaying && !c.isPlaying &&
+        !c.pausedByUser) {
       c.play();
     }
   }
@@ -103,7 +114,19 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     if (oldWidget.sourceKey != widget.sourceKey || (!oldWidget.isLive && widget.isLive)) {
       // A different stream or setting: rebuild the relay from scratch.
       reload(keepQuality: false);
+    } else if (oldWidget.mediaTitle != widget.mediaTitle ||
+        oldWidget.mediaArtist != widget.mediaArtist ||
+        oldWidget.mediaArtwork != widget.mediaArtwork) {
+      _pushNowPlaying();
     }
+  }
+
+  void _pushNowPlaying() {
+    _controller?.setNowPlaying(
+      title: widget.mediaTitle,
+      artist: widget.mediaArtist,
+      artworkUrl: widget.mediaArtwork,
+    );
   }
 
   @override
@@ -162,6 +185,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       await controller.initialize();
       if (session != _session || !mounted) return;
       await controller.play();
+      _pushNowPlaying();
       _scheduleHide();
       _latencyTimer?.cancel();
       _latencyTimer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());

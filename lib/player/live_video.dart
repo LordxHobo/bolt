@@ -24,6 +24,12 @@ abstract class LiveVideo extends ChangeNotifier {
   /// Jumps [by] forward (within what's already loaded).
   Future<void> seekForward(Duration by);
 
+  /// What the lock screen / Control Center show (iPhone only).
+  Future<void> setNowPlaying({String? title, String? artist, String? artworkUrl}) async {}
+
+  /// Paused from the lock screen, Control Center or Relay's own button.
+  bool get pausedByUser => false;
+
   /// Moves the video into picture-in-picture (iPhone only).
   Future<void> startPip() async {}
 
@@ -139,6 +145,7 @@ class _NativeLiveVideo extends LiveVideo {
   Duration? _bufferedEnd;
   DateTime? _date;
   double? _rate;
+  bool _pausedByUser = false;
   bool _pipPossible = false;
   String? _pipStatus;
 
@@ -190,6 +197,7 @@ class _NativeLiveVideo extends LiveVideo {
     final rate = s['rate'];
     _rate = rate is num ? rate.toDouble() : null;
     _pipPossible = s['pipPossible'] == true;
+    _pausedByUser = s['pausedByUser'] == true;
     String yn(Object? v) => v == true ? 'yes' : 'no';
     _pipStatus = 'PiP supported ${yn(s['pipSupported'])} · possible ${yn(s['pipPossible'])} · '
         'auto ${yn(s['pipAuto'])} · active ${yn(s['pip'])}';
@@ -213,6 +221,11 @@ class _NativeLiveVideo extends LiveVideo {
   Future<void> setMuted(bool muted) => _call('setMuted', {'muted': muted});
   @override
   Future<void> startPip() => _call('startPip');
+  @override
+  Future<void> setNowPlaying({String? title, String? artist, String? artworkUrl}) =>
+      _call('setNowPlaying', {'title': title, 'artist': artist, 'artwork': artworkUrl});
+  @override
+  bool get pausedByUser => _pausedByUser;
   @override
   Future<void> seekForward(Duration by) =>
       _call('seekBy', {'seconds': by.inMilliseconds / 1000});
