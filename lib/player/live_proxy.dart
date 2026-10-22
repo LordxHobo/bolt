@@ -156,7 +156,7 @@ class LiveProxy {
         '${speed}x\n'
         'got ${age(_lastFetched)} · newest ${age(newest)}\n'
         'segments $_segCompleted/$_segRequests · '
-        'newest video ${edgeLag?.toStringAsFixed(1) ?? '-'}s old';
+        'newest finished video ${edgeLag?.toStringAsFixed(1) ?? '-'}s old';
   }
 
   Future<void> close() async {
@@ -380,14 +380,23 @@ class LiveProxy {
       candidates.removeRange(0, candidates.length - stitcher.window);
     }
     stitcher.add(candidates);
-    if (index == playingVariant) _sampleEdge(stitcher);
+    if (index == playingVariant) _sampleEdge(stitcher, _prefetchNow[index] ?? const {});
   }
 
-  /// How old the newest video in the playlist is, sampled at each refresh.
+  /// How old the newest *finished* video in the playlist is, sampled at
+  /// each refresh. Segments still being recorded don't count: Apple's
+  /// player only plays a segment once it's complete, so aiming into one
+  /// makes it wait (buffer) until it is.
   final List<double> _edgeAges = [];
 
-  void _sampleEdge(Stitcher stitcher) {
-    final last = stitcher.last;
+  void _sampleEdge(Stitcher stitcher, Set<Uri> recording) {
+    StitchedSegment? last;
+    for (final s in stitcher.segments.reversed) {
+      if (!recording.contains(s.uri)) {
+        last = s;
+        break;
+      }
+    }
     final pdt = last?.pdt;
     if (last == null || pdt == null) return;
     final end = pdt.add(Duration(microseconds: (last.duration * 1000000).round()));
