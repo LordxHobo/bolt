@@ -68,20 +68,42 @@ class TwitchGql {
     final out = <String>[];
     String? cursor;
     while (out.length < max) {
-      final data = await _query(
-        r'query($login: String!, $after: Cursor) { user(login: $login) { '
-        r'follows(first: 100, after: $after) { edges { cursor node { login } } '
-        r'pageInfo { hasNextPage } } } }',
-        {'login': login, 'after': cursor},
-        token: token,
+      // "My own follows" (currentUser), the way twitch.tv's Following page
+      // asks: Twitch hides other people's follow lists, so looking yourself
+      // up by name comes back empty.
+      final res = await httpClient.post(
+        Uri.parse('https://gql.twitch.tv/gql'),
+        headers: {
+          'Client-ID': webClientId,
+          'Content-Type': 'application/json',
+          'User-Agent': browserUserAgent,
+          'Authorization': 'OAuth $token',
+        },
+        body: jsonEncode({
+          'query': r'query($after: Cursor) { currentUser { login '
+              r'follows(first: 100, after: $after) { edges { cursor node { login } } '
+              r'pageInfo { hasNextPage } } } }',
+          'variables': {'after': cursor},
+        }),
       );
-      final follows = jMap(jMap(data['user'])?['follows']);
-      final edges = jList(follows?['edges']);
+      final json = jMap(decodeJson(res, 'Loading your Twitch follows'));
+      final me = jMap(jMap(json?['data'])?['currentUser']);
+      final follows = jMap(me?['follows']);
+      if (follows == null) {
+        // Say why instead of showing an empty list.
+        final errors = jList(json?['errors'])
+            .map((e) => jStr(jMap(e)?['message']) ?? e.toString())
+            .join('; ');
+        throw ApiException(me == null
+            ? 'Twitch did not accept the sign-in ($login)${errors.isEmpty ? '' : ': $errors'}'
+            : 'Twitch did not return your follows${errors.isEmpty ? '' : ': $errors'}');
+      }
+      final edges = jList(follows['edges']);
       for (final e in edges) {
         final l = jStr(jMap(jMap(e)?['node'])?['login']);
         if (l != null) out.add(l);
       }
-      final more = jMap(follows?['pageInfo'])?['hasNextPage'] == true;
+      final more = jMap(follows['pageInfo'])?['hasNextPage'] == true;
       cursor = edges.isEmpty ? null : jStr(jMap(edges.last)?['cursor']);
       if (!more || cursor == null) break;
     }

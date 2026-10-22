@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/models.dart';
+import '../core/net.dart';
 import '../core/services.dart';
 import '../core/settings.dart';
 import '../kick/kick_api.dart';
@@ -214,7 +215,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           final me = twitch.login;
           if (!twitch.isWebLogin || me == null) rethrow;
           debugPrint('Helix follows failed ($e), using GQL');
-          logins = await TwitchGql.getFollowedLogins(login: me, token: token);
+          try {
+            logins = await TwitchGql.getFollowedLogins(login: me, token: token);
+          } catch (e2) {
+            throw ApiException('$e2 (also: $e)');
+          }
         }
         // Helix only lists names; one GQL lookup per 100 adds live status,
         // viewers and avatars.
