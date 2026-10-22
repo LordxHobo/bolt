@@ -272,7 +272,10 @@ class LiveProxy {
   }
 
   Future<String> _variantPlaylist(int index) async {
-    final stitcher = _stitchers.putIfAbsent(index, () => Stitcher(window: lowLatency ? 6 : 10));
+    // A short playlist for IVS, so it starts right at the live edge (it then
+    // keeps whatever distance it started at).
+    final window = !lowLatency ? 10 : (prefetchAsTags ? 4 : 6);
+    final stitcher = _stitchers.putIfAbsent(index, () => Stitcher(window: window));
     // At startup there may be nothing playable yet (e.g. a pre-roll ad with no
     // ad-free backup). Keep the player waiting a little rather than handing
     // it an empty playlist.

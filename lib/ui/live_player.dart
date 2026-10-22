@@ -288,6 +288,10 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     if (_details && mounted) {
       var text = proxy.debugInfo(position, bufferedEnd, _speed);
       final buffered = bufferedEnd == null ? null : (bufferedEnd - position).inMilliseconds / 1000;
+      if (measured != null) {
+        text += '\nIVS: ${measured.toStringAsFixed(1)}s behind · '
+            'buffered ${buffered?.toStringAsFixed(1) ?? '-'}s';
+      }
       if (date != null) {
         text += '\nAVPlayer: ${reading?.toStringAsFixed(1) ?? '-'}s behind · '
             'buffer ahead ${buffered?.toStringAsFixed(1) ?? '-'}s · '
@@ -305,33 +309,41 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     final latency = _recent.reduce((a, b) => a + b) / _recent.length;
     if (mounted) setState(() => _latency = latency);
 
-    if (!_lowLatency || proxy.adState.value != AdState.none || c.managesLatency) {
-      // (The IVS player keeps itself close to live.)
+    if (!_lowLatency || proxy.adState.value != AdState.none) {
       if (!c.managesLatency) _setSpeed(1.0);
       return;
     }
+    final ivs = c.managesLatency;
     // Catch up by jumping forward through video that's already loaded, not
     // by playing faster: at 1.1-1.25x a 60 fps stream drops frames and looks
     // choppy. Playback always stays at normal speed.
-    _setSpeed(1.0);
-    final ahead = bufferedEnd == null ? 0.0 : (bufferedEnd - position).inMilliseconds / 1000;
+    if (!ivs) _setSpeed(1.0);
+    var ahead = bufferedEnd == null ? 0.0 : (bufferedEnd - position).inMilliseconds / 1000;
+    // (IVS may report how much is buffered rather than up to where.)
+    if (ivs && bufferedEnd != null && bufferedEnd < position) {
+      ahead = bufferedEnd.inMilliseconds / 1000;
+    }
     // How close this stream allows: ~3 s when Twitch hands out the segment
     // being recorded; otherwise just behind the newest video available, with
     // room for the next segment to arrive (aiming closer only makes the
     // player run dry and buffer).
+    // The IVS player plays the segment still being recorded, so it can sit
+    // at ~3 s on low-latency streams; Apple's needs finished segments.
     final edge = proxy.edgeLag;
-    final target = edge == null ? 3.0 : (edge + 2.5).clamp(3.0, 20.0);
+    final target = ivs || edge == null ? 3.0 : (edge + 2.5).clamp(3.0, 20.0);
     _target = target;
     final settling = DateTime.now().difference(_startedAt) < const Duration(seconds: 10);
     final behind = latency - target;
-    if (!settling && behind > 1.5 && ahead > 2.5 && latency < 60) {
+    final minBehind = ivs ? 1.0 : 1.5;
+    final keep = ivs ? 1.0 : 1.5;
+    if (!settling && behind > minBehind && ahead > keep + 1.0 && latency < 60) {
       _behindFor++;
       final sinceJump = DateTime.now().difference(_lastJump);
       // Behind for a few readings in a row, and not right after a jump.
       if (_behindFor >= 3 && sinceJump > const Duration(seconds: 15)) {
-        // Keep at least 1.5 s of video loaded after the jump.
-        final jump = behind < ahead - 1.5 ? behind : ahead - 1.5;
-        if (jump > 1.0) {
+        // Keep some video loaded after the jump.
+        final jump = behind < ahead - keep ? behind : ahead - keep;
+        if (jump > 0.8) {
           _lastJump = DateTime.now();
           _recent.clear();
           c.seekForward(Duration(milliseconds: (jump * 1000).round()));
