@@ -114,6 +114,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _onChanged() {
+    // The list picked under the mini player (another copy of this screen)
+    // applies here too, so closing the mini player lands on the same list.
+    final view = Services.settings.homeView;
+    if (view != _view && mounted) setState(() => _view = view);
     final favorites = Services.settings.favorites;
     final login = Services.twitch.login;
     final kickSignedIn = KickFollows.isSignedIn;
@@ -264,9 +268,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void _open(ChannelInfo info) {
     final open = widget.onOpenChannel;
     if (open != null) return open(info.ref, info);
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ChannelScreen(channel: info.ref, initialInfo: info),
-    ));
+    Navigator.of(context).push(ChannelRoute(channel: info.ref, info: info));
   }
 
   Future<void> _toggleFavorite(ChannelRef ref) async {
@@ -348,9 +350,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     } else if (widget.onOpenChannel != null) {
       widget.onOpenChannel!(ref, null);
     } else {
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ChannelScreen(channel: ref),
-      ));
+      Navigator.of(context).push(ChannelRoute(channel: ref));
     }
   }
 

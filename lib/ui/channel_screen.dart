@@ -19,6 +19,19 @@ import 'live_player.dart';
 import 'twitch_player.dart';
 import 'widgets.dart';
 
+/// The route channels open in. It can close without the slide-out animation,
+/// for closing the mini player: the home list it leaves you on is already
+/// on screen.
+class ChannelRoute extends MaterialPageRoute<void> {
+  ChannelRoute({required ChannelRef channel, ChannelInfo? info})
+      : super(builder: (_) => ChannelScreen(channel: channel, initialInfo: info));
+
+  void popInstantly(BuildContext context) {
+    controller?.reverseDuration = Duration.zero;
+    Navigator.of(context).pop();
+  }
+}
+
 class ChannelScreen extends StatefulWidget {
   const ChannelScreen({super.key, required this.channel, this.initialInfo});
 
@@ -319,10 +332,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                 Positioned(
                   top: 4,
                   right: 4,
-                  child: _OverlayButton(
-                    icon: Icons.close_rounded,
-                    onTap: () => Navigator.of(context).pop(),
-                  ),
+                  child: _OverlayButton(icon: Icons.close_rounded, onTap: _closeMini),
                 ),
             ],
           ),
@@ -372,15 +382,24 @@ class _ChannelScreenState extends State<ChannelScreen> {
     });
   }
 
+  /// Closes the stream from the mini player straight onto the home list
+  /// (which is what's already showing), without the slide animation.
+  void _closeMini() {
+    final route = ModalRoute.of(context);
+    if (route is ChannelRoute) {
+      route.popInstantly(context);
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
   /// A channel picked from the list under the mini player.
   void _openFromMini(ChannelRef channel, ChannelInfo? info) {
     if (channel == ref) {
       setState(() => _mini = false);
       return;
     }
-    Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => ChannelScreen(channel: channel, initialInfo: info),
-    ));
+    Navigator.of(context).pushReplacement(ChannelRoute(channel: channel, info: info));
   }
 
   Widget _landscape() {
