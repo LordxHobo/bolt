@@ -78,6 +78,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   /// When the current playback started; catch-up waits a moment after.
   DateTime _startedAt = DateTime.now();
 
+  /// The latency catch-up aims for on this stream (shown in the details).
+  double? _target;
+
   /// Catch-up: readings in a row that were too far behind, and the last jump.
   int _behindFor = 0;
   DateTime _lastJump = DateTime.fromMillisecondsSinceEpoch(0);
@@ -278,6 +281,8 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
             'buffer ahead ${buffered?.toStringAsFixed(1) ?? '-'}s · '
             'playing at ${c.rate?.toStringAsFixed(2) ?? '-'}x';
       }
+      final target = _target;
+      if (target != null) text += '\naiming for ${target.toStringAsFixed(1)}s behind';
       final pip = c.pipStatus;
       if (pip != null) text += '\n$pip';
       setState(() => _detailText = text);
@@ -297,9 +302,13 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     // choppy. Playback always stays at normal speed.
     _setSpeed(1.0);
     final ahead = bufferedEnd == null ? 0.0 : (bufferedEnd - position).inMilliseconds / 1000;
-    // Closer than ~3 s the player would be waiting on the segment Twitch is
-    // still recording, which only arrives once it's complete.
-    const target = 3.0;
+    // How close this stream allows: ~3 s when Twitch hands out the segment
+    // being recorded; otherwise just behind the newest video available, with
+    // room for the next segment to arrive (aiming closer only makes the
+    // player run dry and buffer).
+    final edge = proxy.edgeLag;
+    final target = edge == null ? 3.0 : (edge + 2.5).clamp(3.0, 20.0);
+    _target = target;
     final settling = DateTime.now().difference(_startedAt) < const Duration(seconds: 10);
     final behind = latency - target;
     if (!settling && behind > 1.5 && ahead > 2.5 && latency < 60) {

@@ -94,6 +94,7 @@ class LiveProxy {
     _generation++;
     // A fresh timeline for the new player instance.
     _stitchers.clear();
+    _edgeAges.clear();
     _lastFetched = null;
     _anchors.clear();
     _segRequests = 0;
@@ -142,7 +143,8 @@ class LiveProxy {
         'buf ${bufferedEnd == null ? '-' : sec(bufferedEnd.inMilliseconds / 1000)} · '
         '${speed}x\n'
         'got ${age(_lastFetched)} · newest ${age(newest)}\n'
-        'segments $_segCompleted/$_segRequests';
+        'segments $_segCompleted/$_segRequests · '
+        'newest video ${edgeLag?.toStringAsFixed(1) ?? '-'}s old';
   }
 
   Future<void> close() async {
@@ -357,6 +359,29 @@ class LiveProxy {
       candidates.removeRange(0, candidates.length - stitcher.window);
     }
     stitcher.add(candidates);
+    if (index == playingVariant) _sampleEdge(stitcher);
+  }
+
+  /// How old the newest video in the playlist is, sampled at each refresh.
+  final List<double> _edgeAges = [];
+
+  void _sampleEdge(Stitcher stitcher) {
+    final last = stitcher.last;
+    final pdt = last?.pdt;
+    if (last == null || pdt == null) return;
+    final end = pdt.add(Duration(microseconds: (last.duration * 1000000).round()));
+    final now = DateTime.now().toUtc().add(serverOffset);
+    _edgeAges.add(now.difference(end).inMilliseconds / 1000);
+    if (_edgeAges.length > 15) _edgeAges.removeAt(0);
+  }
+
+  /// How far behind live the newest available video is (worst recent case).
+  /// Low-latency Twitch streams are ~0 s (Twitch hands out the segment being
+  /// recorded); streams without that (Twitch "normal latency", Kick) lag
+  /// several seconds, and the player can't get closer than this.
+  double? get edgeLag {
+    if (_edgeAges.length < 3) return null;
+    return _edgeAges.reduce((a, b) => a > b ? a : b);
   }
 
   void _setAdState(AdState state) {
