@@ -26,8 +26,25 @@ class ChannelRoute extends MaterialPageRoute<void> {
   ChannelRoute({required ChannelRef channel, ChannelInfo? info})
       : super(builder: (_) => ChannelScreen(channel: channel, initialInfo: info));
 
+  bool _instant = false;
+
+  @override
+  Duration get reverseTransitionDuration =>
+      _instant ? Duration.zero : super.reverseTransitionDuration;
+
+  @override
+  Widget buildTransitions(BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation, Widget child) {
+    // Closing from the mini player: no slide at all.
+    if (_instant) return child;
+    return super.buildTransitions(context, animation, secondaryAnimation, child);
+  }
+
   void popInstantly(BuildContext context) {
+    _instant = true;
     controller?.reverseDuration = Duration.zero;
+    // Rebuild the transition without the slide before closing.
+    changedInternalState();
     Navigator.of(context).pop();
   }
 }
