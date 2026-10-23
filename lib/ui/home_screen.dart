@@ -9,6 +9,7 @@ import '../core/settings.dart';
 import '../kick/kick_api.dart';
 import '../kick/kick_follows.dart';
 import '../twitch/twitch_api.dart';
+import '../twitch/twitch_web.dart';
 import 'channel_screen.dart';
 import 'settings_screen.dart';
 import 'widgets.dart';
@@ -214,11 +215,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           // Helix can refuse the twitch.tv login; Twitch's own site API won't.
           final me = twitch.login;
           if (!twitch.isWebLogin || me == null) rethrow;
-          debugPrint('Helix follows failed ($e), using GQL');
+          debugPrint('Helix follows failed ($e), asking through twitch.tv');
           try {
-            logins = await TwitchGql.getFollowedLogins(login: me, token: token);
+            // Through a hidden twitch.tv page, which can pass Twitch's
+            // integrity check like the website does.
+            logins = await TwitchWeb.instance.followedLogins(login: me, token: token);
           } catch (e2) {
-            throw ApiException('$e2 (also: $e)');
+            try {
+              logins = await TwitchGql.getFollowedLogins(login: me, token: token);
+            } catch (e3) {
+              throw ApiException('$e2 (also: $e3; $e)');
+            }
           }
         }
         // Helix only lists names; one GQL lookup per 100 adds live status,
