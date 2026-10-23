@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -7,35 +8,101 @@ import '../core/net.dart';
 
 /// Requests to Twitch's site API made from inside a hidden twitch.tv page.
 ///
-/// Some of Twitch's site API (like your follow list) only answers requests
-/// that carry a "Client-Integrity" token, which twitch.tv's own page can get
-/// but a plain app request can't. Running the request inside the page (where
-/// you're signed in through Relay's twitch.tv sign-in) gets it like the
-/// website does. Same idea as KickWeb.
+/// Twitch's own site API is what knows your full follow list, but it only
+/// answers requests the way twitch.tv's page makes them (with its security
+/// token, current query format, etc.). So Relay opens your Following page
+/// invisibly (you're signed in through Relay's twitch.tv sign-in), watches
+/// the request that page makes for your follows, and repeats exactly that
+/// request to page through the whole list. Same idea as KickWeb.
 class TwitchWeb {
   TwitchWeb._();
   static final instance = TwitchWeb._();
 
   static const _webClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+  static const _followingPage = 'https://www.twitch.tv/directory/following/channels';
+
+  /// Records the page's own requests to Twitch's site API whose answers
+  /// contain a follow list (request body, headers and answer).
+  static const _recorder = r'''
+(function () {
+  if (window.__relayRecorder) return;
+  window.__relayRecorder = true;
+  window.__relayFollows = [];
+  const original = window.fetch;
+  window.__relayFetch = original;
+  window.fetch = async function (input, init) {
+    const response = await original.apply(this, arguments);
+    try {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (url.indexOf('gql.twitch.tv/gql') >= 0 && init && typeof init.body === 'string') {
+        const body = init.body;
+        let headers = init.headers || {};
+        if (headers instanceof Headers) headers = Object.fromEntries(headers.entries());
+        response.clone().text().then(function (text) {
+          if (text.indexOf('"follows"') >= 0) {
+            window.__relayFollows.push({ body: body, headers: headers, text: text });
+          }
+        });
+      }
+    } catch (e) {}
+    return response;
+  };
+  // Also requests made the older way (XMLHttpRequest).
+  const open = XMLHttpRequest.prototype.open;
+  const setHeader = XMLHttpRequest.prototype.setRequestHeader;
+  const sendXhr = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.__relayUrl = String(url || '');
+    this.__relayHeaders = {};
+    return open.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    if (this.__relayHeaders) this.__relayHeaders[name] = value;
+    return setHeader.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function (body) {
+    const xhr = this;
+    if (xhr.__relayUrl && xhr.__relayUrl.indexOf('gql.twitch.tv/gql') >= 0 && typeof body === 'string') {
+      xhr.addEventListener('load', function () {
+        try {
+          const text = xhr.responseText || '';
+          if (text.indexOf('"follows"') >= 0) {
+            window.__relayFollows.push({ body: body, headers: xhr.__relayHeaders, text: text });
+          }
+        } catch (e) {}
+      });
+    }
+    return sendXhr.apply(this, arguments);
+  };
+})();
+''';
 
   HeadlessInAppWebView? _headless;
   InAppWebViewController? _controller;
   Completer<void>? _ready;
 
-  Future<void> _ensurePage() async {
-    final existing = _ready;
-    if (existing != null) {
-      await existing.future.timeout(const Duration(seconds: 30), onTimeout: () {});
+  Future<void> _openFollowingPage() async {
+    if (_headless != null && _controller != null) {
+      // Reload so the page asks for the follow list again.
+      final ready = Completer<void>();
+      _ready = ready;
+      await _controller!.loadUrl(urlRequest: URLRequest(url: WebUri(_followingPage)));
+      await ready.future.timeout(const Duration(seconds: 30), onTimeout: () {});
       return;
     }
     final ready = Completer<void>();
     _ready = ready;
     _headless = HeadlessInAppWebView(
-      initialUrlRequest: URLRequest(url: WebUri('https://www.twitch.tv/directory/following')),
+      initialUrlRequest: URLRequest(url: WebUri(_followingPage)),
+      initialUserScripts: UnmodifiableListView([
+        UserScript(source: _recorder, injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START),
+      ]),
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
-        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 '
-            '(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+        // Desktop site: with an iPhone identity twitch.tv sends the mobile
+        // site, which loads the follow list differently.
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 '
+            '(KHTML, like Gecko) Version/18.0 Safari/605.1.15',
         // This page only runs requests; it must never play anything.
         mediaPlaybackRequiresUserGesture: true,
         allowsInlineMediaPlayback: false,
@@ -58,16 +125,17 @@ class TwitchWeb {
     );
     await _headless!.run();
     await ready.future.timeout(const Duration(seconds: 30), onTimeout: () {});
-    // Give the page's own scripts a moment to set up (they protect the
-    // integrity request).
-    await Future<void>.delayed(const Duration(seconds: 2));
   }
 
-  /// Logins of the channels the signed-in user follows.
-  Future<List<String>> followedLogins({required String login, required String token}) async {
+  /// Logins of the channels the signed-in user follows. When the full list
+  /// can't be had, falls back to the ones live right now ([liveOnly] true).
+  Future<({List<String> logins, bool liveOnly})> followedLogins({
+    required String login,
+    required String token,
+  }) async {
     String? lastError;
     for (var attempt = 0; attempt < 2; attempt++) {
-      await _ensurePage();
+      await _openFollowingPage();
       final controller = _controller;
       if (controller == null) {
         lastError = 'twitch.tv did not load';
@@ -76,62 +144,98 @@ class TwitchWeb {
       try {
         final result = await controller.callAsyncJavaScript(
           functionBody: r'''
-            const cookie = (name) => {
-              const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]+)'));
-              return m ? decodeURIComponent(m[1]) : null;
-            };
-            const headers = {
-              'Client-ID': clientId,
-              'Authorization': 'OAuth ' + token,
-              'Content-Type': 'text/plain;charset=UTF-8',
-            };
-            const device = cookie('unique_id');
-            if (device) headers['X-Device-Id'] = device;
-            let integrity = null;
-            try {
-              const r = await fetch('https://gql.twitch.tv/integrity', { method: 'POST', headers });
-              const j = await r.json();
-              integrity = j && j.token ? j.token : null;
-            } catch (e) {}
-            if (integrity) headers['Client-Integrity'] = integrity;
-
-            const queries = [
-              ['currentUser', 'query($after: Cursor) { currentUser { follows(first: 100, after: $after, order: DESC) { edges { cursor node { login } } pageInfo { hasNextPage } } } }'],
-              ['user', 'query($login: String!, $after: Cursor) { user(login: $login, lookupType: ALL) { follows(first: 100, after: $after, order: DESC) { edges { cursor node { login } } pageInfo { hasNextPage } } } }'],
-            ];
-            let error = null;
-            for (const [root, query] of queries) {
-              const out = [];
-              let after = null;
-              let ok = true;
-              for (let page = 0; page < 30; page++) {
-                const r = await fetch('https://gql.twitch.tv/gql', {
-                  method: 'POST', headers, body: JSON.stringify({ query, variables: { login, after } }),
-                });
-                const j = await r.json();
-                const f = j && j.data && j.data[root] ? j.data[root].follows : null;
-                if (!f) {
-                  ok = false;
-                  error = (j && j.errors ? j.errors.map((e) => e.message).join('; ') : 'HTTP ' + r.status);
-                  break;
-                }
-                for (const e of f.edges || []) if (e && e.node && e.node.login) out.push(e.node.login);
-                const last = (f.edges || []).slice(-1)[0];
-                if (!f.pageInfo || !f.pageInfo.hasNextPage || !last) break;
-                after = last.cursor;
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+            const send = window.__relayFetch || fetch;
+            const findFollows = (o, depth) => {
+              if (!o || typeof o !== 'object' || depth > 8) return null;
+              if (o.follows && Array.isArray(o.follows.edges)) return o.follows;
+              for (const k in o) {
+                const r = findFollows(o[k], depth + 1);
+                if (r) return r;
               }
-              if (ok) return { logins: out, integrity: !!integrity };
+              return null;
+            };
+            const loginsOf = (follows) =>
+              (follows.edges || []).map((e) => e && e.node && e.node.login).filter(Boolean);
+
+            // 1. Wait for the page's own follow-list request, then repeat it
+            //    page by page.
+            let seen = null;
+            for (let i = 0; i < 40 && !seen; i++) {
+              const list = window.__relayFollows || [];
+              if (list.length) seen = list[list.length - 1];
+              else await sleep(500);
             }
-            return { error: error, integrity: !!integrity };
+            let replayError = seen ? null : 'the Following page never asked for your follows';
+            if (seen) {
+              try {
+                const body = JSON.parse(seen.body);
+                const answer = JSON.parse(seen.text);
+                const ops = Array.isArray(body) ? body : [body];
+                const answers = Array.isArray(answer) ? answer : [answer];
+                let index = answers.findIndex((a) => findFollows(a && a.data, 0));
+                if (index < 0) throw new Error('no follow list in the answer');
+                const op = ops[index];
+                const out = loginsOf(findFollows(answers[index].data, 0));
+                let follows = findFollows(answers[index].data, 0);
+                for (let page = 0; page < 40; page++) {
+                  const last = (follows.edges || []).slice(-1)[0];
+                  const more = follows.pageInfo ? follows.pageInfo.hasNextPage : !!(last && last.cursor);
+                  if (!more || !last || !last.cursor) break;
+                  const vars = Object.assign({}, op.variables || {});
+                  if ('after' in vars) vars.after = last.cursor; else vars.cursor = last.cursor;
+                  const next = Object.assign({}, op, { variables: vars });
+                  const r = await send('https://gql.twitch.tv/gql', {
+                    method: 'POST', headers: seen.headers, body: JSON.stringify(Array.isArray(body) ? [next] : next),
+                  });
+                  const j = await r.json();
+                  const a = Array.isArray(j) ? j[0] : j;
+                  follows = findFollows(a && a.data, 0);
+                  if (!follows) break;
+                  for (const l of loginsOf(follows)) out.push(l);
+                }
+                return { logins: out };
+              } catch (e) {
+                replayError = String(e && e.message || e);
+              }
+            }
+
+            // 2. At least the channels live right now (a simpler request).
+            const headers = { 'Client-ID': clientId, 'Authorization': 'OAuth ' + token,
+                              'Content-Type': 'text/plain;charset=UTF-8' };
+            const m = document.cookie.match(/(?:^|; )unique_id=([^;]+)/);
+            if (m) headers['X-Device-Id'] = decodeURIComponent(m[1]);
+            if (seen && seen.headers) {
+              for (const k of Object.keys(seen.headers)) {
+                if (/integrity|device|session/i.test(k)) headers[k] = seen.headers[k];
+              }
+            }
+            const r = await send('https://gql.twitch.tv/gql', {
+              method: 'POST', headers,
+              body: JSON.stringify({ query: 'query { currentUser { followedLiveUsers(first: 100) { edges { node { login } } } } }' }),
+            });
+            const j = await r.json();
+            const live = j && j.data && j.data.currentUser && j.data.currentUser.followedLiveUsers;
+            if (live) {
+              return { logins: (live.edges || []).map((e) => e.node && e.node.login).filter(Boolean),
+                       liveOnly: true, error: replayError };
+            }
+            return { error: replayError + '; live list: ' +
+                     (j && j.errors ? j.errors.map((e) => e.message).join('; ') : 'HTTP ' + r.status) };
           ''',
           arguments: {'clientId': _webClientId, 'token': token, 'login': login},
         );
         final value = result?.value;
         if (value is Map) {
           final logins = value['logins'];
-          if (logins is List) return logins.map((e) => e.toString()).toList();
-          lastError = '${value['error'] ?? 'no answer'}'
-              '${value['integrity'] == true ? '' : ' (no integrity token)'}';
+          if (logins is List) {
+            if (value['error'] != null) debugPrint('TwitchWeb: ${value['error']}');
+            return (
+              logins: logins.map((e) => e.toString()).toList(),
+              liveOnly: value['liveOnly'] == true,
+            );
+          }
+          lastError = '${value['error'] ?? 'no answer'}';
         } else if (result?.error != null) {
           lastError = result!.error;
         }
@@ -139,14 +243,6 @@ class TwitchWeb {
         lastError = '$e';
         debugPrint('TwitchWeb follows failed: $e');
       }
-      // Reload the page and try once more (e.g. its scripts weren't ready).
-      try {
-        final ready = Completer<void>();
-        _ready = ready;
-        await _controller?.reload();
-        await ready.future.timeout(const Duration(seconds: 20), onTimeout: () {});
-        await Future<void>.delayed(const Duration(seconds: 2));
-      } catch (_) {}
     }
     throw ApiException('twitch.tv: ${lastError ?? 'no answer'}');
   }

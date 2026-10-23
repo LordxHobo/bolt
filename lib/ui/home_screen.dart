@@ -81,6 +81,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   bool _twitchLoaded = false;
   String? _twitchError;
 
+  /// Twitch only gave the channels live right now, not the full list.
+  bool _twitchLiveOnly = false;
+
   List<ChannelInfo> _kickFollows = [];
   bool _kickLoaded = false;
   String? _kickError;
@@ -205,6 +208,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         _twitchError = 'Your Twitch sign-in has expired. Sign in again in Settings.';
       } else {
         List<String> logins;
+        _twitchLiveOnly = false;
         try {
           logins = await TwitchHelix.getFollowedLogins(
             clientId: clientId,
@@ -219,7 +223,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           try {
             // Through a hidden twitch.tv page, which can pass Twitch's
             // integrity check like the website does.
-            logins = await TwitchWeb.instance.followedLogins(login: me, token: token);
+            final result = await TwitchWeb.instance.followedLogins(login: me, token: token);
+            logins = result.logins;
+            _twitchLiveOnly = result.liveOnly;
           } catch (e2) {
             try {
               logins = await TwitchGql.getFollowedLogins(login: me, token: token);
@@ -419,6 +425,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   String? get _twitchNotice {
     if (!Services.twitch.isLoggedIn) return 'Sign in to Twitch in Settings to see who you follow there.';
+    if (_twitchError == null && _twitchLiveOnly) {
+      return 'Showing only Twitch channels that are live right now: Twitch didn\'t give the full follow list.';
+    }
     return _twitchError;
   }
 
