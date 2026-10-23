@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show Size;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/net.dart';
@@ -93,6 +94,9 @@ class TwitchWeb {
     final ready = Completer<void>();
     _ready = ready;
     _headless = HeadlessInAppWebView(
+      // A real desktop-sized window, so the list's "load more when the
+      // bottom comes into view" works while scrolling it.
+      initialSize: const Size(1280, 1600),
       initialUrlRequest: URLRequest(url: WebUri(_followingPage)),
       initialUserScripts: UnmodifiableListView([
         UserScript(source: _recorder, injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START),
@@ -167,37 +171,68 @@ class TwitchWeb {
               else await sleep(500);
             }
             let replayError = seen ? null : 'the Following page never asked for your follows';
+            const all = new Set();
+            const collect = () => {
+              for (const rec of window.__relayFollows || []) {
+                try {
+                  const answer = JSON.parse(rec.text);
+                  for (const a of Array.isArray(answer) ? answer : [answer]) {
+                    const f = findFollows(a && a.data, 0);
+                    if (f) for (const l of loginsOf(f)) all.add(l);
+                  }
+                } catch (e) {}
+              }
+            };
             if (seen) {
+              // a) Repeat the page's request with the next-page marker.
               try {
                 const body = JSON.parse(seen.body);
                 const answer = JSON.parse(seen.text);
                 const ops = Array.isArray(body) ? body : [body];
                 const answers = Array.isArray(answer) ? answer : [answer];
-                let index = answers.findIndex((a) => findFollows(a && a.data, 0));
-                if (index < 0) throw new Error('no follow list in the answer');
-                const op = ops[index];
-                const out = loginsOf(findFollows(answers[index].data, 0));
-                let follows = findFollows(answers[index].data, 0);
-                for (let page = 0; page < 40; page++) {
-                  const last = (follows.edges || []).slice(-1)[0];
-                  const more = follows.pageInfo ? follows.pageInfo.hasNextPage : !!(last && last.cursor);
-                  if (!more || !last || !last.cursor) break;
-                  const vars = Object.assign({}, op.variables || {});
-                  if ('after' in vars) vars.after = last.cursor; else vars.cursor = last.cursor;
-                  const next = Object.assign({}, op, { variables: vars });
-                  const r = await send('https://gql.twitch.tv/gql', {
-                    method: 'POST', headers: seen.headers, body: JSON.stringify(Array.isArray(body) ? [next] : next),
-                  });
-                  const j = await r.json();
-                  const a = Array.isArray(j) ? j[0] : j;
-                  follows = findFollows(a && a.data, 0);
-                  if (!follows) break;
-                  for (const l of loginsOf(follows)) out.push(l);
+                const index = answers.findIndex((a) => findFollows(a && a.data, 0));
+                if (index >= 0) {
+                  const op = ops[index];
+                  let follows = findFollows(answers[index].data, 0);
+                  for (let page = 0; page < 40 && follows; page++) {
+                    const last = (follows.edges || []).slice(-1)[0];
+                    const more = follows.pageInfo ? follows.pageInfo.hasNextPage : !!(last && last.cursor);
+                    if (!more || !last || !last.cursor) break;
+                    const vars = Object.assign({}, op.variables || {});
+                    if ('after' in vars) vars.after = last.cursor; else vars.cursor = last.cursor;
+                    const next = Object.assign({}, op, { variables: vars });
+                    const r = await send('https://gql.twitch.tv/gql', {
+                      method: 'POST', headers: seen.headers,
+                      body: JSON.stringify(Array.isArray(body) ? [next] : next),
+                    });
+                    const j = await r.json();
+                    const a = Array.isArray(j) ? j[0] : j;
+                    follows = findFollows(a && a.data, 0);
+                    if (follows) for (const l of loginsOf(follows)) all.add(l);
+                  }
                 }
-                return { logins: out };
               } catch (e) {
                 replayError = String(e && e.message || e);
               }
+
+              // b) Scroll the page's own list to the bottom over and over, so
+              //    Twitch loads every next batch itself (recorded as it comes).
+              let records = (window.__relayFollows || []).length;
+              let quiet = 0;
+              for (let i = 0; i < 80 && quiet < 4; i++) {
+                window.scrollTo(0, document.body.scrollHeight);
+                for (const el of document.querySelectorAll('*')) {
+                  if (el.scrollHeight > el.clientHeight + 50) {
+                    const style = getComputedStyle(el);
+                    if (/(auto|scroll)/.test(style.overflowY)) el.scrollTop = el.scrollHeight;
+                  }
+                }
+                await sleep(1200);
+                const now = (window.__relayFollows || []).length;
+                if (now > records) { records = now; quiet = 0; } else { quiet++; }
+              }
+              collect();
+              if (all.size) return { logins: Array.from(all) };
             }
 
             // 2. At least the channels live right now (a simpler request).
