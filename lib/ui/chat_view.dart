@@ -119,6 +119,8 @@ class _ChatViewState extends State<ChatView> {
                   ListView.builder(
                     controller: _scroll,
                     reverse: true,
+                    // Scrolling the chat puts the keyboard away.
+                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     itemCount: c.messages.length,
                     itemBuilder: (context, i) => ChatLine(
@@ -154,6 +156,13 @@ class _ChatViewState extends State<ChatView> {
   }
 
   Widget _suggestionBar() {
+    // Counts as part of the text field, so picking an emote keeps typing.
+    return TextFieldTapRegion(
+      child: _suggestionList(),
+    );
+  }
+
+  Widget _suggestionList() {
     return SizedBox(
       height: 40,
       child: ListView(
@@ -214,6 +223,9 @@ class _ChatViewState extends State<ChatView> {
                   maxLength: 500,
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => _send(),
+                  // Tapping anywhere else (chat, video, header) puts the
+                  // keyboard away. iOS doesn't do that by itself.
+                  onTapOutside: (_) => _focus.unfocus(),
                   decoration: InputDecoration(
                     isDense: true,
                     counterText: '',
@@ -228,12 +240,16 @@ class _ChatViewState extends State<ChatView> {
                   ),
                 ),
               ),
-              IconButton(
+              // Part of the text field's tap area, so sending keeps the
+              // keyboard up for the next message.
+              TextFieldTapRegion(
+                child: IconButton(
                 onPressed: _sending ? null : _send,
                 icon: _sending
                     ? const SizedBox(
                         width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                     : Icon(Icons.send_rounded, color: widget.platform.color),
+              ),
               ),
             ],
           ),
