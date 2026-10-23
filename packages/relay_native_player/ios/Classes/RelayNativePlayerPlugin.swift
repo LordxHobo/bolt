@@ -95,6 +95,9 @@ class RelayPlayback: NSObject, AVPictureInPictureControllerDelegate {
   private var nowPlaying: [String: Any] = [:]
   private var artworkUrl: String?
   private var detachedForBackground = false
+  /// Picture-in-picture is starting or showing. It takes a moment to become
+  /// "active", so this is set as soon as it's requested.
+  private var pipInUse = false
 
   override init() {
     super.init()
@@ -173,6 +176,8 @@ class RelayPlayback: NSObject, AVPictureInPictureControllerDelegate {
   func startPip() {
     RelayPlayback.claimAudioSession()
     if let pip = pip, pip.isPictureInPicturePossible {
+      pipInUse = true
+      reattachAfterBackground()
       pip.startPictureInPicture()
     }
   }
@@ -180,7 +185,10 @@ class RelayPlayback: NSObject, AVPictureInPictureControllerDelegate {
   private func startPipOnLeave() {
     guard let pip = pip, !pip.isPictureInPictureActive, isPlaying else { return }
     RelayPlayback.claimAudioSession()
-    if pip.isPictureInPicturePossible { pip.startPictureInPicture() }
+    if pip.isPictureInPicturePossible {
+      pipInUse = true
+      pip.startPictureInPicture()
+    }
   }
 
   private func stopPipOnReturn() {
@@ -189,8 +197,10 @@ class RelayPlayback: NSObject, AVPictureInPictureControllerDelegate {
   }
 
   private func keepPlayingInBackground() {
+    // Never take the video away while picture-in-picture is starting or
+    // showing: the window would turn grey with only the sound playing.
     guard UIApplication.shared.applicationState == .background,
-          !(pip?.isPictureInPictureActive ?? false),
+          !pipInUse, !(pip?.isPictureInPictureActive ?? false),
           !pausedByUser, detachVideo() else { return }
     detachedForBackground = true
     startPlayback()
@@ -259,6 +269,27 @@ class RelayPlayback: NSObject, AVPictureInPictureControllerDelegate {
     pip?.stopPictureInPicture()
     pip = nil
     disposePlayer()
+  }
+
+  func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+    pipInUse = true
+    // If the video had been detached for background audio, put it back.
+    reattachAfterBackground()
+  }
+
+  func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+    pipInUse = false
+    // Closed the window while Relay is in the background: keep the sound.
+    if UIApplication.shared.applicationState == .background {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.keepPlayingInBackground() }
+    }
+  }
+
+  func pictureInPictureController(
+    _ controller: AVPictureInPictureController,
+    failedToStartPictureInPictureWithError error: Error
+  ) {
+    pipInUse = false
   }
 
   // Coming back from picture-in-picture: the player is still on screen.
