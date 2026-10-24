@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
@@ -66,7 +67,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _menu = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 220),
@@ -91,6 +93,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   bool _loading = false;
   bool _refreshAgain = false;
+  bool _refreshAgainFull = false;
   Timer? _autoRefresh;
 
   List<ChannelRef> _lastFavorites = [];
@@ -105,13 +108,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _lastKickSignedIn = KickFollows.isSignedIn;
     Services.settings.addListener(_onChanged);
     Services.twitch.addListener(_onChanged);
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
-    _autoRefresh = Timer.periodic(const Duration(minutes: 2), (_) => _refresh());
+    _autoRefresh = Timer.periodic(_liveCheckEvery, (_) => _refresh());
   }
 
   @override
   void dispose() {
     _autoRefresh?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _menu.dispose();
     Services.settings.removeListener(_onChanged);
     Services.twitch.removeListener(_onChanged);
@@ -140,19 +145,45 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   // ---------------------------------------------------------------- loading
 
-  Future<void> _refresh() async {
+  /// Live status is cheap to check (one lookup per 100 channels), so it runs
+  /// often. Your full Twitch follow list is slow to get (it comes through a
+  /// hidden twitch.tv page), so Relay keeps the last one it got, shows that
+  /// straight away, and only fetches it again now and then in the background.
+  static const _liveCheckEvery = Duration(seconds: 45);
+  static const _followListMaxAge = Duration(minutes: 30);
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Back in the app: check who's live right away.
+    if (state == AppLifecycleState.resumed) _refresh();
+  }
+
+  Future<void> _refresh({bool full = false}) async {
     if (!mounted) return;
     if (_loading) {
       _refreshAgain = true;
+      _refreshAgainFull = _refreshAgainFull || full;
       return;
     }
     setState(() => _loading = true);
-    await Future.wait([_loadFavorites(), _loadTwitchFollows(), _loadKickFollows()]);
+    // Each part shows as soon as it's ready; favorites don't wait for the
+    // follow lists.
+    void show(void _) {
+      if (mounted) setState(() {});
+    }
+
+    await Future.wait([
+      _loadFavorites().then(show),
+      _loadTwitchFollows(full: full).then(show),
+      _loadKickFollows().then(show),
+    ]);
     if (!mounted) return;
     setState(() => _loading = false);
     if (_refreshAgain) {
+      final again = _refreshAgainFull;
       _refreshAgain = false;
-      unawaited(_refresh());
+      _refreshAgainFull = false;
+      unawaited(_refresh(full: again));
     }
   }
 
@@ -190,59 +221,159 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _favoritesLoaded = true;
   }
 
-  Future<void> _loadTwitchFollows() async {
+  // The last full Twitch follow list (saved, so it's there at app start).
+  List<String>? _twitchLogins;
+  DateTime? _twitchListAt;
+  String? _twitchListOwner;
+  Future<void>? _twitchListJob;
+  bool _twitchRetryScheduled = false;
+  int _twitchRetries = 0;
+
+  static const _twitchListKey = 'twitchFollowList';
+
+  void _restoreTwitchList(String me) {
+    if (_twitchListOwner == me) return;
+    _twitchListOwner = me;
+    _twitchLogins = null;
+    _twitchListAt = null;
+    try {
+      final raw = Services.settings.prefs.getString(_twitchListKey);
+      if (raw == null) return;
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      if (m['login'] != me) return;
+      _twitchLogins = (m['logins'] as List).map((e) => e.toString()).toList();
+      final at = m['at'];
+      if (at is int) _twitchListAt = DateTime.fromMillisecondsSinceEpoch(at);
+    } catch (_) {}
+  }
+
+  void _saveTwitchList(String me) {
+    unawaited(Services.settings.prefs.setString(
+      _twitchListKey,
+      jsonEncode({'login': me, 'at': _twitchListAt?.millisecondsSinceEpoch, 'logins': _twitchLogins}),
+    ));
+  }
+
+  Future<void> _loadTwitchFollows({bool full = false}) async {
     final twitch = Services.twitch;
     // twitch.tv login: Twitch's own web client; older login: your dev app.
     final clientId = twitch.clientId ?? Services.settings.twitchClientId;
-    if (!twitch.isLoggedIn || clientId.isEmpty) {
+    final me = twitch.login;
+    if (!twitch.isLoggedIn || clientId.isEmpty || me == null) {
       _twitchFollows = [];
       _twitchError = null;
       _twitchLoaded = true;
       return;
     }
+    _restoreTwitchList(me);
+    final known = _twitchLogins;
+    if (known != null && known.isNotEmpty) {
+      // Live status for the list we already know.
+      try {
+        _twitchFollows = await TwitchGql.getChannels(known);
+        _twitchError = null;
+      } catch (e) {
+        _twitchError = 'Could not check who is live: $e';
+      }
+      _twitchLoaded = true;
+    }
+    final at = _twitchListAt;
+    final stale = at == null || DateTime.now().difference(at) > _followListMaxAge;
+    if (!full && !stale && known != null && known.isNotEmpty) return;
+
+    final job = _twitchListJob ??= _fetchTwitchList(clientId, me).whenComplete(() => _twitchListJob = null);
+    if (full || known == null || known.isEmpty) {
+      // Pull to refresh, or nothing to show yet: wait for it.
+      await job;
+    } else {
+      // Live status is already showing; the list updates when it arrives.
+      unawaited(job.then((_) {
+        if (mounted) setState(() {});
+      }));
+    }
+  }
+
+  Future<void> _fetchTwitchList(String clientId, String me) async {
+    final twitch = Services.twitch;
+    final known = _twitchLogins;
     try {
       final token = await twitch.validAccessToken();
       final userId = twitch.userId;
       if (token == null || userId == null) {
         _twitchFollows = [];
         _twitchError = 'Your Twitch sign-in has expired. Sign in again in Settings.';
-      } else {
-        List<String> logins;
-        _twitchLiveOnly = false;
+        return;
+      }
+      List<String> logins;
+      var liveOnly = false;
+      try {
+        logins = await TwitchHelix.getFollowedLogins(
+          clientId: clientId,
+          accessToken: token,
+          userId: userId,
+        );
+      } catch (e) {
+        // Helix can refuse the twitch.tv login; Twitch's own site API won't.
+        if (!twitch.isWebLogin) rethrow;
+        debugPrint('Helix follows failed ($e), asking through twitch.tv');
         try {
-          logins = await TwitchHelix.getFollowedLogins(
-            clientId: clientId,
-            accessToken: token,
-            userId: userId,
-          );
-        } catch (e) {
-          // Helix can refuse the twitch.tv login; Twitch's own site API won't.
-          final me = twitch.login;
-          if (!twitch.isWebLogin || me == null) rethrow;
-          debugPrint('Helix follows failed ($e), asking through twitch.tv');
+          // Through a hidden twitch.tv page, which can pass Twitch's
+          // integrity check like the website does.
+          final result = await TwitchWeb.instance.followedLogins(login: me, token: token);
+          logins = result.logins;
+          liveOnly = result.liveOnly;
+        } catch (e2) {
           try {
-            // Through a hidden twitch.tv page, which can pass Twitch's
-            // integrity check like the website does.
-            final result = await TwitchWeb.instance.followedLogins(login: me, token: token);
-            logins = result.logins;
-            _twitchLiveOnly = result.liveOnly;
-          } catch (e2) {
-            try {
-              logins = await TwitchGql.getFollowedLogins(login: me, token: token);
-            } catch (e3) {
-              throw ApiException('$e2 (also: $e3; $e)');
-            }
+            logins = await TwitchGql.getFollowedLogins(login: me, token: token);
+          } catch (e3) {
+            throw ApiException('$e2 (also: $e3; $e)');
           }
         }
-        // Helix only lists names; one GQL lookup per 100 adds live status,
-        // viewers and avatars.
-        _twitchFollows = await TwitchGql.getChannels(logins);
-        _twitchError = null;
       }
+      if (twitch.login != me) return; // signed into another account meanwhile
+      if (liveOnly) {
+        if (known != null && known.isNotEmpty) {
+          // Keep the full list from before (plus anyone new who's live); try
+          // the full list again in a few minutes.
+          _twitchLogins = {...known, ...logins}.toList();
+          _twitchListAt = DateTime.now().subtract(_followListMaxAge - const Duration(minutes: 3));
+          _twitchLiveOnly = false;
+        } else {
+          // First time and twitch.tv wasn't ready yet: show who's live and
+          // try for the full list again shortly, so no manual refresh.
+          _twitchLogins = logins;
+          _twitchListAt = null;
+          _twitchLiveOnly = true;
+          if (!_twitchRetryScheduled && _twitchRetries < 3) {
+            _twitchRetryScheduled = true;
+            _twitchRetries++;
+            Timer(const Duration(seconds: 8), () {
+              _twitchRetryScheduled = false;
+              if (mounted) _refresh(full: true);
+            });
+          }
+        }
+      } else {
+        _twitchLogins = logins;
+        _twitchListAt = DateTime.now();
+        _twitchLiveOnly = false;
+        _twitchRetries = 0;
+      }
+      _saveTwitchList(me);
+      // Helix only lists names; one GQL lookup per 100 adds live status,
+      // viewers and avatars.
+      _twitchFollows = await TwitchGql.getChannels(_twitchLogins!);
+      _twitchError = null;
     } catch (e) {
-      _twitchError = 'Could not load your Twitch follows: $e';
+      if (known != null && known.isNotEmpty) {
+        // Still showing the list from before; try again next time.
+        debugPrint('Twitch follow list refresh failed: $e');
+      } else {
+        _twitchError = 'Could not load your Twitch follows: $e';
+      }
+    } finally {
+      _twitchLoaded = true;
     }
-    _twitchLoaded = true;
   }
 
   Future<void> _loadKickFollows() async {
@@ -661,7 +792,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final firstOffline = entries.indexWhere((e) => !e.primary.isLive);
 
     return RefreshIndicator(
-      onRefresh: _refresh,
+      onRefresh: () => _refresh(full: true),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 96),

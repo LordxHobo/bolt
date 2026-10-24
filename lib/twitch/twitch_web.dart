@@ -229,7 +229,7 @@ class TwitchWeb {
                     if (/(auto|scroll)/.test(style.overflowY)) el.scrollTop = el.scrollHeight;
                   }
                 }
-                await sleep(1200);
+                await sleep(800);
                 const now = (window.__relayFollows || []).length;
                 if (now > records) { records = now; quiet = 0; } else { quiet++; }
               }
