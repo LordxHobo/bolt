@@ -1,6 +1,9 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../core/silent_page.dart';
 import '../kick/kick_follows.dart';
 import 'widgets.dart';
 
@@ -65,6 +68,7 @@ class _KickWebLoginScreenState extends State<KickWebLoginScreen> {
           Expanded(
             child: InAppWebView(
               initialUrlRequest: URLRequest(url: WebUri('https://kick.com/')),
+              initialUserScripts: UnmodifiableListView([silentPageScript]),
               initialSettings: InAppWebViewSettings(
                 javaScriptEnabled: true,
                 mediaPlaybackRequiresUserGesture: true,

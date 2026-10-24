@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/net.dart';
+import '../core/silent_page.dart';
 
 class KickResponse {
   final int status;
@@ -91,13 +93,14 @@ class KickWeb {
     _ready = ready;
     _headless = HeadlessInAppWebView(
       initialUrlRequest: URLRequest(url: WebUri('https://kick.com/')),
+      initialUserScripts: UnmodifiableListView([silentPageScript]),
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
         // This page only runs requests; it must never play kick.com's
         // featured stream (which could also take over picture-in-picture
         // from Relay's player).
         mediaPlaybackRequiresUserGesture: true,
-        allowsInlineMediaPlayback: false,
+        allowsInlineMediaPlayback: true, // never full screen over Relay
         allowsPictureInPictureMediaPlayback: false,
         allowsAirPlayForMediaPlayback: false,
       ),

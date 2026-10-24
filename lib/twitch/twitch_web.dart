@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart' show Size;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/net.dart';
+import '../core/silent_page.dart';
 
 /// Requests to Twitch's site API made from inside a hidden twitch.tv page.
 ///
@@ -100,6 +101,7 @@ class TwitchWeb {
       initialUrlRequest: URLRequest(url: WebUri(_followingPage)),
       initialUserScripts: UnmodifiableListView([
         UserScript(source: _recorder, injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START),
+        silentPageScript,
       ]),
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
@@ -109,7 +111,7 @@ class TwitchWeb {
             '(KHTML, like Gecko) Version/18.0 Safari/605.1.15',
         // This page only runs requests; it must never play anything.
         mediaPlaybackRequiresUserGesture: true,
-        allowsInlineMediaPlayback: false,
+        allowsInlineMediaPlayback: true, // never full screen over Relay
         allowsPictureInPictureMediaPlayback: false,
         allowsAirPlayForMediaPlayback: false,
       ),

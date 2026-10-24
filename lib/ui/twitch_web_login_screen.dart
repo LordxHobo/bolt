@@ -1,6 +1,9 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../core/silent_page.dart';
 import '../core/services.dart';
 import 'widgets.dart';
 
@@ -84,6 +87,7 @@ class _TwitchWebLoginScreenState extends State<TwitchWebLoginScreen> {
           Expanded(
             child: InAppWebView(
               initialUrlRequest: URLRequest(url: WebUri('https://www.twitch.tv/login')),
+              initialUserScripts: UnmodifiableListView([silentPageScript]),
               initialSettings: InAppWebViewSettings(
                 javaScriptEnabled: true,
                 userAgent: _safariUserAgent,
