@@ -1,5 +1,6 @@
 import '../kick/kick_auth.dart';
 import '../twitch/twitch_auth.dart';
+import 'live_alerts.dart';
 import 'settings.dart';
 
 /// App-wide singletons. This is a single-user app, so plain globals keep
@@ -13,6 +14,7 @@ class Services {
     await settings.load();
     await Future.wait([twitch.load(), kick.load()]);
     await _migrateTwitchWebLogin();
+    LiveAlerts.start();
   }
 
   /// Earlier versions kept the twitch.tv login (used only for playback)

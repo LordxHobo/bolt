@@ -40,6 +40,21 @@ void _android() {
       (m) => '${m.group(0)}\n        <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />',
     );
   }
+  // relay:// links (taps on live alerts) open Relay; app_links handles them,
+  // so Flutter's own deep-link handling is turned off.
+  if (!s.contains('android:scheme="relay"')) {
+    s = s.replaceFirstMapped(
+      RegExp(r'(<activity[^>]*android:name="\.MainActivity"[^>]*>)'),
+      (m) => '${m.group(1)}\n'
+          '            <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />\n'
+          '            <intent-filter>\n'
+          '                <action android:name="android.intent.action.VIEW" />\n'
+          '                <category android:name="android.intent.category.DEFAULT" />\n'
+          '                <category android:name="android.intent.category.BROWSABLE" />\n'
+          '                <data android:scheme="relay" />\n'
+          '            </intent-filter>',
+    );
+  }
   manifest.writeAsStringSync(s);
   stdout.writeln('Patched ${manifest.path}');
 
@@ -79,6 +94,7 @@ void _android() {
 -keep class com.pichillilorenzo.** { *; }
 -keep class com.it_nomads.fluttersecurestorage.** { *; }
 -keep class dev.fluttercommunity.plus.** { *; }
+-keep class com.llfbandit.app_links.** { *; }
 ''';
   final existing = rules.existsSync() ? rules.readAsStringSync() : '';
   if (!existing.contains('# --- Relay ---')) {
@@ -121,6 +137,32 @@ void _ios() {
       '\t<array>\n'
       '\t\t<string>audio</string>\n'
       '\t</array>\n'
+      '</dict>\n</plist>\n',
+    );
+  }
+  // relay:// links (taps on live alerts) open Relay; app_links handles them.
+  if (!s.contains('<string>relay</string>')) {
+    s = s.replaceFirst(
+      RegExp(r'</dict>\s*</plist>\s*$'),
+      '\t<key>CFBundleURLTypes</key>\n'
+      '\t<array>\n'
+      '\t\t<dict>\n'
+      '\t\t\t<key>CFBundleURLName</key>\n'
+      '\t\t\t<string>io.github.relayapp.relay</string>\n'
+      '\t\t\t<key>CFBundleURLSchemes</key>\n'
+      '\t\t\t<array>\n'
+      '\t\t\t\t<string>relay</string>\n'
+      '\t\t\t</array>\n'
+      '\t\t</dict>\n'
+      '\t</array>\n'
+      '</dict>\n</plist>\n',
+    );
+  }
+  if (!s.contains('FlutterDeepLinkingEnabled')) {
+    s = s.replaceFirst(
+      RegExp(r'</dict>\s*</plist>\s*$'),
+      '\t<key>FlutterDeepLinkingEnabled</key>\n'
+      '\t<false/>\n'
       '</dict>\n</plist>\n',
     );
   }

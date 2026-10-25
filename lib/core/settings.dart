@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -115,6 +116,13 @@ class Settings extends ChangeNotifier {
 
   List<ChannelRef> favorites = [];
 
+  /// Live alerts (see server/live-alerts): the checker's address, Relay's
+  /// private ntfy topic, and per-streamer choices that differ from the
+  /// default (favorites on, everyone else off).
+  String alertsServer = '';
+  String alertsTopic = '';
+  Map<String, bool> alertChoices = {};
+
   /// True once the basic (non-secure) settings are available.
   bool isLoaded = false;
 
@@ -158,6 +166,20 @@ class Settings extends ChangeNotifier {
     chatTextScale = _prefs.getDouble('chatTextScale') ?? 1.0;
     showTimestamps = _prefs.getBool('showTimestamps') ?? false;
     landscapeChat = _prefs.getBool('landscapeChat') ?? true;
+    alertsServer = _prefs.getString('alertsServer') ?? '';
+    alertsTopic = _prefs.getString('alertsTopic') ?? '';
+    if (alertsTopic.isEmpty) {
+      const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+      final rnd = Random.secure();
+      alertsTopic = 'relay-${List.generate(20, (_) => chars[rnd.nextInt(chars.length)]).join()}';
+      await _prefs.setString('alertsTopic', alertsTopic);
+    }
+    try {
+      final raw = jsonDecode(_prefs.getString('alertChoices') ?? '{}') as Map<String, dynamic>;
+      alertChoices = {for (final e in raw.entries) if (e.value is bool) e.key: e.value as bool};
+    } catch (_) {
+      alertChoices = {};
+    }
     final favJson = _prefs.getString('favorites');
     if (favJson != null) {
       try {
@@ -289,6 +311,47 @@ class Settings extends ChangeNotifier {
     }
     await _prefs.setString(
         'favorites', jsonEncode(favorites.map((f) => f.toJson()).toList()));
+    notifyListeners();
+  }
+
+  /// Whether [ref] sends a live alert: your choice, or on for favorites.
+  bool alertsFor(ChannelRef ref) => alertChoices[ref.key] ?? isFavorite(ref);
+
+  Future<void> setAlertsFor(ChannelRef ref, bool on) async {
+    alertChoices = {...alertChoices};
+    if (on == isFavorite(ref)) {
+      alertChoices.remove(ref.key);
+    } else {
+      alertChoices[ref.key] = on;
+    }
+    await _prefs.setString('alertChoices', jsonEncode(alertChoices));
+    notifyListeners();
+  }
+
+  /// Every streamer that currently sends alerts.
+  List<ChannelRef> get alertChannels {
+    final out = <ChannelRef>[
+      for (final f in favorites)
+        if (alertsFor(f)) f,
+    ];
+    for (final e in alertChoices.entries) {
+      if (!e.value) continue;
+      final i = e.key.indexOf(':');
+      if (i <= 0) continue;
+      final ref = ChannelRef(StreamPlatformX.parse(e.key.substring(0, i)), e.key.substring(i + 1));
+      if (!out.contains(ref)) out.add(ref);
+    }
+    return out;
+  }
+
+  Future<void> setAlertsServer(String v) async {
+    var url = v.trim();
+    while (url.endsWith('/')) {
+      url = url.substring(0, url.length - 1);
+    }
+    if (url.isNotEmpty && !url.contains('://')) url = 'https://$url';
+    alertsServer = url;
+    await _prefs.setString('alertsServer', url);
     notifyListeners();
   }
 }

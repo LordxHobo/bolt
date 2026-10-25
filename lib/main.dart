@@ -1,9 +1,13 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'core/models.dart';
 import 'core/services.dart';
+import 'ui/channel_screen.dart';
 import 'ui/home_screen.dart';
 
 Future<void> main() async {
@@ -30,6 +34,49 @@ class _RelayAppState extends State<RelayApp> {
 
   Future<void> _start() => Services.init().timeout(const Duration(seconds: 15));
 
+  final _navigator = GlobalKey<NavigatorState>();
+  StreamSubscription<Uri>? _links;
+
+  @override
+  void initState() {
+    super.initState();
+    // relay://open/<twitch|kick>/<name>, e.g. from a live alert. Also gives
+    // the link Relay was opened with.
+    try {
+      _links = AppLinks().uriLinkStream.listen(_openLink, onError: (Object e) {
+        debugPrint('Link failed: $e');
+      });
+    } catch (e) {
+      debugPrint('Links unavailable: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _links?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _openLink(Uri uri) async {
+    if (uri.scheme != 'relay' || uri.host != 'open') return;
+    final parts = uri.pathSegments.where((p) => p.isNotEmpty).toList();
+    if (parts.length < 2 || !const ['twitch', 'kick'].contains(parts[0])) return;
+    final channel = ChannelRef(StreamPlatformX.parse(parts[0]), parts[1]);
+    try {
+      await _init;
+    } catch (_) {
+      return;
+    }
+    for (var i = 0; i < 20 && _navigator.currentState == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    final nav = _navigator.currentState;
+    if (nav == null) return;
+    // Replace whatever stream is open (or in the mini player).
+    nav.popUntil((route) => route.isFirst);
+    unawaited(nav.push(ChannelRoute(channel: channel)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = ColorScheme.fromSeed(
@@ -38,6 +85,7 @@ class _RelayAppState extends State<RelayApp> {
       surface: const Color(0xFF0E0E10),
     );
     return MaterialApp(
+      navigatorKey: _navigator,
       title: 'Relay',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

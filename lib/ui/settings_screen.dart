@@ -7,6 +7,7 @@ import '../core/settings.dart';
 import '../twitch/adblock.dart';
 import '../kick/kick_follows.dart';
 import 'kick_web_login_screen.dart';
+import 'live_alerts_screen.dart';
 import 'twitch_web_login_screen.dart';
 import 'widgets.dart';
 
@@ -95,6 +96,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: KickFollows.isSignedIn
                     ? TextButton(onPressed: _signOutKick, child: const Text('Sign out'))
                     : FilledButton(onPressed: _signInKick, child: const Text('Sign in')),
+              ),
+              const SectionHeader('Notifications'),
+              ListTile(
+                leading: const Icon(Icons.notifications_active_outlined),
+                title: const Text('Live alerts'),
+                subtitle: Text(_settings.alertsServer.isEmpty
+                    ? 'Get notified when streamers go live'
+                    : '${_settings.alertChannels.length} streamers'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const LiveAlertsScreen()),
+                ),
               ),
               const SectionHeader('Player'),
               for (final mode in TwitchPlayerMode.values)

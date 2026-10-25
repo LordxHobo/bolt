@@ -544,6 +544,7 @@ class _Header extends StatelessWidget {
     final theme = Theme.of(context);
     final i = info ?? ChannelInfo.placeholder(channel);
     final favorite = Services.settings.isFavorite(channel);
+    final alerts = Services.settings.alertsFor(channel);
     final details = <String>[
       if (i.isLive && i.category != null) i.category!,
       if (i.isLive && i.viewers != null) '${formatViewers(i.viewers)} watching',
@@ -590,6 +591,22 @@ class _Header extends StatelessWidget {
             icon: Icon(favorite ? Icons.star_rounded : Icons.star_outline_rounded,
                 color: favorite ? Colors.amber.shade400 : null),
             onPressed: () => Services.settings.toggleFavorite(channel),
+          ),
+          IconButton(
+            tooltip: alerts ? 'Turn off live alerts' : 'Alert me when live',
+            icon: Icon(alerts ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
+                color: alerts ? theme.colorScheme.primary : null),
+            onPressed: () {
+              Services.settings.setAlertsFor(channel, !alerts);
+              final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+              messenger.showSnackBar(SnackBar(
+                content: Text(!alerts
+                    ? (Services.settings.alertsServer.isEmpty
+                        ? 'Live alerts on for ${i.displayName}. Finish setting up alerts in Settings → Live alerts.'
+                        : "You'll get a notification when ${i.displayName} goes live")
+                    : 'Live alerts off for ${i.displayName}'),
+              ));
+            },
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
