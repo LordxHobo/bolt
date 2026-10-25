@@ -8,8 +8,10 @@
 // Bindings (Worker settings):
 //   ALERTS             KV namespace (required)
 //   NTFY_SERVER        optional, default https://ntfy.sh
-//   NTFY_TOKEN         ntfy access token (secret); needed with ntfy.sh, which
-//                      otherwise limits Cloudflare's shared addresses
+//   BARK_KEY           your key from the Bark app (secret). When set, alerts
+//                      go through Bark instead of ntfy (recommended: ntfy.sh
+//                      limits Cloudflare's shared addresses)
+//   NTFY_TOKEN         optional ntfy access token (paid ntfy plans)
 //   KICK_CLIENT_ID     optional, a Kick developer app; used if kick.com's
 //   KICK_CLIENT_SECRET own site API refuses the Worker
 //
@@ -270,19 +272,36 @@ async function kickLive(env, slugs, live, checked) {
 }
 
 async function notify(env, topic, n) {
+  // Bark (free iOS app) when its key is set; ntfy otherwise.
+  if (env.BARK_KEY) return notifyBark(env, n);
   const server = (env.NTFY_SERVER || 'https://ntfy.sh').replace(/\/+$/, '');
   const headers = { 'Content-Type': 'application/json' };
-  // Cloudflare's addresses are shared with many other users, and ntfy.sh
-  // limits anonymous senders per address, so it often answers 429. With a
-  // (free) ntfy account token, the limit is your own instead.
+  // ntfy.sh limits senders per internet address, and Cloudflare's addresses
+  // are shared, so it often answers 429 there (a free ntfy account doesn't
+  // change that; a paid one does). Bark doesn't have this problem.
   if (env.NTFY_TOKEN) headers.Authorization = 'Bearer ' + env.NTFY_TOKEN;
   const res = await fetch(server, {
     method: 'POST',
     headers,
     body: JSON.stringify({ topic, ...n }),
   });
-  if (res.status === 429 && !env.NTFY_TOKEN) {
-    throw new Error('ntfy HTTP 429: add your ntfy access token as the NTFY_TOKEN secret');
-  }
   if (!res.ok) throw new Error('ntfy HTTP ' + res.status + ' ' + (await res.text()).slice(0, 200));
+}
+
+async function notifyBark(env, n) {
+  const server = (env.BARK_SERVER || 'https://api.day.app').replace(/\/+$/, '');
+  const body = { title: n.title, body: n.message, group: 'Relay' };
+  if (n.click) body.url = n.click;
+  if (n.icon) body.icon = n.icon;
+  const res = await fetch(server + '/' + encodeURIComponent(env.BARK_KEY.trim()), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let code = res.status;
+  try {
+    code = JSON.parse(text).code || code;
+  } catch (e) {}
+  if (!res.ok || code !== 200) throw new Error('Bark HTTP ' + code + ' ' + text.slice(0, 200));
 }

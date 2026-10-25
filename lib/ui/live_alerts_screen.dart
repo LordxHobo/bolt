@@ -42,7 +42,7 @@ class _LiveAlertsScreenState extends State<LiveAlertsScreen> {
       showError(context, error);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Test sent. It should show up from ntfy in a few seconds.'),
+        content: Text('Test sent. It should show up in a few seconds.'),
       ));
     }
   }
@@ -50,7 +50,7 @@ class _LiveAlertsScreenState extends State<LiveAlertsScreen> {
   void _copyTopic() {
     Clipboard.setData(ClipboardData(text: _settings.alertsTopic));
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Topic copied. Subscribe to it in the ntfy app.'),
+      content: Text('Copied'),
     ));
   }
 
@@ -75,19 +75,19 @@ class _LiveAlertsScreenState extends State<LiveAlertsScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
                 child: Text(
                   'Get a notification when a streamer goes live. A small free checker on '
-                  'Cloudflare looks every minute and notifies you through the ntfy app; '
+                  'Cloudflare looks every minute and notifies you through the Bark app; '
                   'tapping the notification opens the stream in Relay. Setup steps are in '
                   'server/live-alerts/README.md in your Relay repository.',
                   style: theme.textTheme.bodySmall?.copyWith(color: muted),
                 ),
               ),
-              const SectionHeader('1. ntfy topic'),
+              const SectionHeader('Your private key'),
               ListTile(
                 title: SelectableText(_settings.alertsTopic),
-                subtitle: const Text('Subscribe to this in the ntfy app (server ntfy.sh)'),
-                trailing: TextButton(onPressed: _copyTopic, child: const Text('Copy topic')),
+                subtitle: const Text('Keeps your list private on the checker. Only needed in the ntfy app if you use ntfy instead of Bark'),
+                trailing: TextButton(onPressed: _copyTopic, child: const Text('Copy')),
               ),
-              const SectionHeader('2. Checker address'),
+              const SectionHeader('Checker address'),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                 child: TextField(
