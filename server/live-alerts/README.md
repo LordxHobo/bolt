@@ -30,6 +30,16 @@ on a channel turns alerts on or off for that streamer.
 7. Copy the worker's address (it looks like
    `https://relay-alerts.<your-name>.workers.dev`).
 
+### 2b. ntfy access token (needed)
+ntfy.sh limits anonymous senders per internet address, and Cloudflare's
+addresses are shared by many people, so without a token ntfy answers
+"429". A free ntfy account fixes it:
+1. Sign up at <https://ntfy.sh/signup> and log in at <https://ntfy.sh/app>.
+2. **Account → Access tokens → Create access token** (no expiry). Copy it
+   (it starts with `tk_`).
+3. In Cloudflare: the worker → **Settings → Variables and Secrets → Add**,
+   type **Secret**, name `NTFY_TOKEN`, value the token. Deploy.
+
 ### 3. Connect Relay
 1. In Relay: **Settings → Live alerts**, paste the worker address.
 2. Tap **Send test alert**. A notification should show up from ntfy.

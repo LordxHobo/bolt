@@ -8,6 +8,8 @@
 // Bindings (Worker settings):
 //   ALERTS             KV namespace (required)
 //   NTFY_SERVER        optional, default https://ntfy.sh
+//   NTFY_TOKEN         ntfy access token (secret); needed with ntfy.sh, which
+//                      otherwise limits Cloudflare's shared addresses
 //   KICK_CLIENT_ID     optional, a Kick developer app; used if kick.com's
 //   KICK_CLIENT_SECRET own site API refuses the Worker
 //
@@ -269,10 +271,18 @@ async function kickLive(env, slugs, live, checked) {
 
 async function notify(env, topic, n) {
   const server = (env.NTFY_SERVER || 'https://ntfy.sh').replace(/\/+$/, '');
+  const headers = { 'Content-Type': 'application/json' };
+  // Cloudflare's addresses are shared with many other users, and ntfy.sh
+  // limits anonymous senders per address, so it often answers 429. With a
+  // (free) ntfy account token, the limit is your own instead.
+  if (env.NTFY_TOKEN) headers.Authorization = 'Bearer ' + env.NTFY_TOKEN;
   const res = await fetch(server, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ topic, ...n }),
   });
-  if (!res.ok) throw new Error('ntfy HTTP ' + res.status);
+  if (res.status === 429 && !env.NTFY_TOKEN) {
+    throw new Error('ntfy HTTP 429: add your ntfy access token as the NTFY_TOKEN secret');
+  }
+  if (!res.ok) throw new Error('ntfy HTTP ' + res.status + ' ' + (await res.text()).slice(0, 200));
 }
