@@ -1,4 +1,4 @@
-# Relay
+# Bolt
 
 A phone app (Android + iOS) for watching **Twitch and Kick** in one place, with
 **7TV emotes** in chat and **TwitchAdSolutions** ad blocking on Twitch.
@@ -7,7 +7,7 @@ A phone app (Android + iOS) for watching **Twitch and Kick** in one place, with
   All / Twitch / Kick filter; multistreams show once), **Kick** and **Twitch**.
   Live favorites come first, then by viewers. It reopens on the view you used last.
 - Twitch and Kick playback in the native video player (AVPlayer / ExoPlayer)
-  through Relay's local relay, which keeps you close to live and removes
+  through Bolt's local relay, which keeps you close to live and removes
   Twitch ads (ported from TwitchAdSolutions' `vaft`)
 - Latency readout on the video and a low-latency mode that catches up
   automatically (both in Settings → Player)
@@ -30,14 +30,14 @@ A phone app (Android + iOS) for watching **Twitch and Kick** in one place, with
 
 ## How the player and ad blocking work
 
-Relay runs a tiny HTTP server on the phone (127.0.0.1 only). The video player
-loads the stream from it, and Relay fetches the real playlists from Twitch or
+Bolt runs a tiny HTTP server on the phone (127.0.0.1 only). The video player
+loads the stream from it, and Bolt fetches the real playlists from Twitch or
 Kick and rewrites them:
 
 - **Lower latency.** Phones play Twitch's stock playlists about 15-20 s behind
-  live. Relay serves a short playlist with tight segment timing and adds the
+  live. Bolt serves a short playlist with tight segment timing and adds the
   segment Twitch is recording right now. In low-latency mode, when playback
-  falls more than ~1.5 s behind its 3 s target, Relay jumps forward through
+  falls more than ~1.5 s behind its 3 s target, Bolt jumps forward through
   video that's already loaded (playback itself always stays at normal speed,
   so 60 fps stays smooth).
 - **Ad removal (Twitch).** This is the same idea as TwitchAdSolutions' `vaft`:
@@ -45,7 +45,7 @@ Kick and rewrites them:
   backup stream (Twitch's embed/popout/autoplay players), matched by time. If
   no backup is ad-free either, the player waits for the break to end
   ("Ad break, waiting for the stream").
-- **Latency readout.** Video segments pass through the relay too, so Relay
+- **Latency readout.** Video segments pass through the Bolt too, so Bolt
   knows the newest piece the player downloaded and its timestamp. "Xs behind
   live" is that piece's age plus however much video is buffered ahead of the
   playhead.
@@ -53,7 +53,7 @@ Kick and rewrites them:
 ### Web player fallback
 
 Settings → Player → **Twitch web player** switches Twitch back to Twitch's own
-player in a WebView. Before Twitch's page code runs, Relay injects a
+player in a WebView. Before Twitch's page code runs, Bolt injects a
 TwitchAdSolutions userscript. You choose the script in Settings → Twitch ad
 blocking:
 
@@ -76,14 +76,14 @@ servers.
 1. Create an empty repository on GitHub (private is fine) and push this folder
    to it. The folder is already a git repository with one commit:
    ```sh
-   git remote add origin https://github.com/<you>/relay.git
+   git remote add origin https://github.com/<you>/Bolt.git
    git push -u origin main
    ```
 2. Open the repo's **Actions** tab. The **Build** workflow starts on every push
    to `main`; you can also run it by hand with **Run workflow**.
 3. When it finishes, download the artifacts at the bottom of the run page:
-   - `relay-android` → `app-release.apk`
-   - `relay-ios` → `relay-unsigned.ipa`
+   - `Bolt-android` → `app-release.apk`
+   - `Bolt-ios` → `Bolt-unsigned.ipa`
 
 Private repos get free GitHub Actions minutes each month; macOS minutes count
 10×, and one iOS build takes roughly 10–15 minutes.
@@ -94,7 +94,7 @@ The IPA is unsigned, so a sideloading tool signs it with your Apple ID:
 
 1. Install **[Sideloadly](https://sideloadly.io)** (Windows or macOS) or
    **[AltStore](https://altstore.io)** (AltServer runs on Windows).
-2. Plug in your iPhone, drag `relay-unsigned.ipa` into the tool, sign in with
+2. Plug in your iPhone, drag `Bolt-unsigned.ipa` into the tool, sign in with
    your Apple ID, and install.
 3. On the phone, turn on **Settings → Privacy & Security → Developer Mode**
    when iOS asks, and trust your Apple ID under
@@ -122,7 +122,7 @@ there's one sign-in per platform, on the platform's own login page:
 - **Twitch**: chat, your follow list, and streams are requested as you, so
   channels you're subscribed to (or everything, with Turbo) play without ads.
 - **Kick**: chat and your follow list. Kick has no official API for follows,
-  so Relay uses the endpoints kick.com itself uses; they may change.
+  so Bolt uses the endpoints kick.com itself uses; they may change.
 
 No developer apps or Client IDs are needed anymore.
 
@@ -131,7 +131,7 @@ No developer apps or Client IDs are needed anymore.
 With Flutter 3.47 or newer installed:
 
 ```sh
-flutter create --platforms=android,ios --org io.github.relayapp --project-name relay .
+flutter create --platforms=android,ios --org io.github.Boltapp --project-name Bolt .
 dart run tool/configure_platforms.dart
 flutter run
 ```
@@ -142,12 +142,12 @@ existing `lib/` code.
 ## Known limits
 
 - **Kick chat** moved from Pusher to Kick's own Centrifugo server on
-  2026-10-13. Relay uses the new connection flow the Kick website uses; it's
+  2026-10-13. Bolt uses the new connection flow the Kick website uses; it's
   not an official API, so it may change again.
 - **Kick's website API** (channel info, playback URL, chat history) is behind
-  Cloudflare. When Cloudflare blocks a plain request, Relay repeats it inside a
+  Cloudflare. When Cloudflare blocks a plain request, Bolt repeats it inside a
   hidden WebView with kick.com open, which behaves like a normal browser.
-- The relay player picks the best quality by default; change it with the
+- The Bolt player picks the best quality by default; change it with the
   quality button on the video. It doesn't switch quality by itself when your
   connection drops.
 - Twitch ad removal hasn't been tested much against Twitch's newest ad
@@ -165,8 +165,8 @@ lib/
   twitch/                   GQL/Helix API, device-code login, IRC chat, ad-block scripts
   kick/                     website API (+ Cloudflare fallback), OAuth login, Centrifugo chat
   chat/                     chat models, 7TV, chat controller
-  player/                   local relay: HLS parsing/stitching, Twitch/Kick sources
-packages/relay_native_player/   the iPhone player (AVPlayer + picture-in-picture)
+  player/                   local Bolt: HLS parsing/stitching, Twitch/Kick sources
+packages/Bolt_native_player/   the iPhone player (AVPlayer + picture-in-picture)
   ui/                       screens and widgets
 assets/adblock/             bundled TwitchAdSolutions scripts + MIT license
 assets/icon/                app icon (icon.png for iOS, icon_foreground.png for Android)
