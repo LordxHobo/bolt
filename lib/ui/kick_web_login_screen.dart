@@ -29,7 +29,7 @@ class _KickWebLoginScreenState extends State<KickWebLoginScreen> {
       Navigator.of(context).pop(true);
     } else {
       showError(context,
-          "Relay couldn't read your follows yet. Make sure you're logged in on the page, then tap Done again.");
+          "Bolt couldn't read your follows yet. Make sure you're logged in on the page, then tap Done again.");
     }
   }
 
@@ -61,7 +61,7 @@ class _KickWebLoginScreenState extends State<KickWebLoginScreen> {
             color: theme.colorScheme.surfaceContainer,
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
             child: Text(
-              'Log in with your Kick account below, then tap Done. Relay only uses this to see who you follow.',
+              'Log in with your Kick account below, then tap Done. Bolt only uses this to see who you follow.',
               style: theme.textTheme.bodySmall,
             ),
           ),

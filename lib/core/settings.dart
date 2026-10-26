@@ -63,7 +63,7 @@ enum AdBlockScript {
 
 /// Which player Relay uses for Twitch.
 enum TwitchPlayerMode {
-  relay('Relay player', 'Recommended. Native playback, close to live, ads removed by Relay.'),
+  relay('Bolt player', 'Recommended. Native playback, close to live, ads removed by Bolt.'),
   web('Twitch web player', "Twitch's own player in a web view, with the script below.");
 
   const TwitchPlayerMode(this.label, this.description);

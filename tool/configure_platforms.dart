@@ -5,7 +5,7 @@
 //   dart run tool/configure_platforms.dart
 import 'dart:io';
 
-const appName = 'Relay';
+const appName = 'Bolt';
 
 void main() {
   _android();

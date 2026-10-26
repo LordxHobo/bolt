@@ -1,11 +1,11 @@
-# Relay live alerts
+# Bolt live alerts
 
 A small checker that runs for free on Cloudflare. Every minute it looks up
-whether the streamers you picked in Relay are live, and when one goes live
+whether the streamers you picked in Bolt are live, and when one goes live
 it sends a notification to your iPhone through the free **Bark** app.
-Tapping the notification opens the stream in Relay.
+Tapping the notification opens the stream in Bolt.
 
-Relay decides who to watch: your favorites are on by default, and the bell
+Bolt decides who to watch: your favorites are on by default, and the bell
 on a channel turns alerts on or off for that streamer.
 
 ## One-time setup
@@ -31,15 +31,15 @@ on a channel turns alerts on or off for that streamer.
 7. Worker → **Settings → Trigger events / Cron Triggers → Add**: every
    minute (`* * * * *`).
 
-### 3. Connect Relay
-1. In Relay: **Settings → Live alerts**, paste the worker address.
+### 3. Connect Bolt
+1. In Bolt: **Settings → Live alerts**, paste the worker address.
 2. Tap **Send test alert**. A notification should show up from Bark.
 
 A streamer you turn alerts on for will notify you the next time they go
 live (not if they're already live when you turn it on).
 
 ## Using ntfy instead of Bark
-Leave `BARK_KEY` out and subscribe to Relay's private key (Settings → Live
+Leave `BARK_KEY` out and subscribe to Bolt's private key (Settings → Live
 alerts → Copy) in the ntfy app. Note that ntfy.sh limits senders per
 internet address and Cloudflare's addresses are shared, so without a paid
 ntfy plan (token in the `NTFY_TOKEN` secret) it usually refuses with "429".
@@ -52,8 +52,8 @@ and add two **Secrets** to the worker: `KICK_CLIENT_ID` and
 
 ## Notes
 - Everything here fits Cloudflare's free plan. The worker only writes to
-  storage when a stream starts or ends, or when Relay sends a new list.
-- Relay's private key is what the worker uses to keep your list. Anyone
+  storage when a stream starts or ends, or when Bolt sends a new list.
+- Bolt's private key is what the worker uses to keep your list. Anyone
   with the worker address and that key could change your list, so keep it
   to yourself (same for your Bark key).
 - A stream that drops and comes back within 10 minutes doesn't alert twice.

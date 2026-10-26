@@ -166,7 +166,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 SwitchListTile(
                   title: const Text('Block Twitch ads'),
                   subtitle: const Text(
-                      'During ad breaks Relay plays an ad-free copy of the stream, the way '
+                      'During ad breaks Bolt plays an ad-free copy of the stream, the way '
                       "TwitchAdSolutions' vaft does. If none is available, the video waits until the break ends."),
                   value: _settings.relayAdBlock,
                   onChanged: (v) => _settings.setRelayAdBlock(v),
@@ -244,7 +244,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: const Text(
                     'Ad blocking: TwitchAdSolutions (MIT). Emotes: 7TV. Not affiliated with Twitch or Kick.\n'
                     'Build $relayBuild'),
-                onTap: () => showLicensePage(context: context, applicationName: 'Relay'),
+                onTap: () => showLicensePage(context: context, applicationName: 'Bolt'),
               ),
             ],
           ),

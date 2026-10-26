@@ -76,8 +76,8 @@ class _LiveAlertsScreenState extends State<LiveAlertsScreen> {
                 child: Text(
                   'Get a notification when a streamer goes live. A small free checker on '
                   'Cloudflare looks every minute and notifies you through the Bark app; '
-                  'tapping the notification opens the stream in Relay. Setup steps are in '
-                  'server/live-alerts/README.md in your Relay repository.',
+                  'tapping the notification opens the stream in Bolt. Setup steps are in '
+                  'server/live-alerts/README.md in your repository.',
                   style: theme.textTheme.bodySmall?.copyWith(color: muted),
                 ),
               ),

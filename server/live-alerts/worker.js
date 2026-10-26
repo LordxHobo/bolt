@@ -32,7 +32,7 @@ export default {
     const cors = { 'Access-Control-Allow-Origin': '*' };
     try {
       if (parts.length === 0) {
-        return new Response('Relay live alerts is running.', { headers: cors });
+        return new Response('Bolt live alerts is running.', { headers: cors });
       }
       const [route, topic] = parts;
       if (!topic || !/^[A-Za-z0-9_-]{12,64}$/.test(topic)) {
@@ -58,7 +58,7 @@ export default {
       }
       if (route === 'test' && request.method === 'POST') {
         await notify(env, topic, {
-          title: 'Relay live alerts work',
+          title: 'Bolt live alerts work',
           message: "You'll get a notification like this when a streamer goes live.",
         });
         return json({ ok: true });
@@ -290,7 +290,7 @@ async function notify(env, topic, n) {
 
 async function notifyBark(env, n) {
   const server = (env.BARK_SERVER || 'https://api.day.app').replace(/\/+$/, '');
-  const body = { title: n.title, body: n.message, group: 'Relay' };
+  const body = { title: n.title, body: n.message, group: 'Bolt' };
   if (n.click) body.url = n.click;
   if (n.icon) body.icon = n.icon;
   const res = await fetch(server + '/' + encodeURIComponent(env.BARK_KEY.trim()), {

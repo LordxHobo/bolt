@@ -79,7 +79,7 @@ class _TwitchWebLoginScreenState extends State<TwitchWebLoginScreen> {
             color: theme.colorScheme.surfaceContainer,
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
             child: Text(
-              'Log in with your Twitch account. Relay uses it to chat, show who you follow, and '
+              'Log in with your Twitch account. Bolt uses it to chat, show who you follow, and '
               "watch as you, so channels you're subscribed to play without ads.",
               style: theme.textTheme.bodySmall,
             ),

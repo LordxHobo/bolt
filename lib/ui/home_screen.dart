@@ -593,7 +593,7 @@ class _HomeScreenState extends State<HomeScreen>
               child: Row(
                 children: [
                   Expanded(
-                    child: Text('Relay',
+                    child: Text('Bolt',
                         style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
                   ),
                   IconButton(

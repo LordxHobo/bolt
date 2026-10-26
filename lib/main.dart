@@ -86,7 +86,7 @@ class _RelayAppState extends State<RelayApp> {
     );
     return MaterialApp(
       navigatorKey: _navigator,
-      title: 'Relay',
+      title: 'Bolt',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: scheme,
@@ -144,7 +144,7 @@ class _StartupError extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Relay could not start', style: Theme.of(context).textTheme.titleLarge),
+              Text('Bolt could not start', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 4),
               const Text('Build $relayBuild'),
               const SizedBox(height: 12),
