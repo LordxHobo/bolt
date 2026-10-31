@@ -89,6 +89,17 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   int _behindFor = 0;
   DateTime _lastJump = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Extra seconds added to the target on this stream after the player ran
+  /// out of video. Aiming as close as the stream allows can be too close for
+  /// your connection: the player runs dry, falls back to 7-8 s, catches up,
+  /// and runs dry again. Each time that happens the target moves back a bit,
+  /// and after a long stretch without trouble it tries a little closer again.
+  double _extra = 0;
+  bool _stalled = false;
+  DateTime _lastStall = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastEase = DateTime.fromMillisecondsSinceEpoch(0);
+  static const _maxExtra = 5.0;
+
   @override
   void initState() {
     super.initState();
@@ -119,7 +130,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   void didUpdateWidget(LivePlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.sourceKey != widget.sourceKey || (!oldWidget.isLive && widget.isLive)) {
-      // A different stream or setting: rebuild the relay from scratch.
+      // A different stream or setting: rebuild the relay from scratch, and
+      // start learning that stream's comfortable latency afresh.
+      _extra = 0;
       reload(keepQuality: false);
     } else if (oldWidget.mediaTitle != widget.mediaTitle ||
         oldWidget.mediaArtist != widget.mediaArtist ||
@@ -253,6 +266,10 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       // wait forever at the live edge.
       _setSpeed(1.0);
       if (c.isBuffering && _wantPlaying) {
+        if (!_stalled) {
+          _stalled = true;
+          _onRanDry(proxy);
+        }
         _stalledFor++;
         final inApp = WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
         // Not during ad breaks: a restart would only fetch a new pre-roll ad.
@@ -269,6 +286,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       return;
     }
     _stalledFor = 0;
+    _stalled = false;
     final position = c.position;
     final bufferedEnd = c.bufferedEnd;
     // The iPhone player knows the exact stream time on screen; otherwise
@@ -298,7 +316,10 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
             'playing at ${c.rate?.toStringAsFixed(2) ?? '-'}x';
       }
       final target = _target;
-      if (target != null) text += '\naiming for ${target.toStringAsFixed(1)}s behind';
+      if (target != null) {
+        text += '\naiming for ${target.toStringAsFixed(1)}s behind'
+            '${_extra > 0 ? ' (+${_extra.toStringAsFixed(1)}s after running dry)' : ''}';
+      }
       final pip = c.pipStatus;
       if (pip != null) text += '\n$pip';
       setState(() => _detailText = text);
@@ -330,7 +351,17 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     // The IVS player plays the segment still being recorded, so it can sit
     // at ~3 s on low-latency streams; Apple's needs finished segments.
     final edge = proxy.edgeLag;
-    final target = ivs || edge == null ? 3.0 : (edge + 2.5).clamp(3.0, 20.0);
+    final base = ivs || edge == null ? 3.0 : (edge + 2.5).clamp(3.0, 20.0);
+    // After 5 minutes without running dry, try half a second closer again
+    // (at most once every 5 minutes).
+    final now = DateTime.now();
+    if (_extra > 0 &&
+        now.difference(_lastStall) > const Duration(minutes: 5) &&
+        now.difference(_lastEase) > const Duration(minutes: 5)) {
+      _extra = (_extra - 0.5).clamp(0.0, _maxExtra);
+      _lastEase = now;
+    }
+    final target = base + _extra;
     _target = target;
     final settling = DateTime.now().difference(_startedAt) < const Duration(seconds: 10);
     final behind = latency - target;
@@ -353,6 +384,22 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     } else {
       _behindFor = 0;
     }
+  }
+
+  /// The player stopped to wait for video while it should be playing.
+  void _onRanDry(LiveProxy proxy) {
+    final now = DateTime.now();
+    // Not right after starting (it's still filling up) or during ads.
+    if (now.difference(_startedAt) < const Duration(seconds: 10)) return;
+    if (proxy.adState.value != AdState.none) return;
+    // Only when catch-up had brought it close: then the target was too
+    // ambitious for this stream and connection.
+    final target = _target;
+    final latency = _latency;
+    if (target != null && latency != null && latency > target + 3) return;
+    _extra = (_extra + 0.75).clamp(0.0, _maxExtra);
+    _lastStall = now;
+    _lastEase = now;
   }
 
   void _setSpeed(double speed) {
