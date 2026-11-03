@@ -79,6 +79,13 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   /// Seconds the player has been stuck waiting for video.
   int _stalledFor = 0;
 
+  /// Where the playhead was at the last check, to tell whether the video is
+  /// really moving. The player sometimes says it's waiting for video while
+  /// it's actually still playing; trusting that made Bolt restart a stream
+  /// that was playing fine (and land further behind).
+  Duration? _lastPosition;
+  DateTime? _lastDate;
+
   /// When the current playback started; catch-up waits a moment after.
   DateTime _startedAt = DateTime.now();
 
@@ -261,7 +268,16 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     final c = _controller;
     final proxy = _proxy;
     if (c == null || proxy == null || !c.isInitialized) return;
-    if (!c.isPlaying) {
+    // Did the picture move since the last check (about a second ago)?
+    final pos = c.position;
+    final when = c.playheadDate;
+    final lastPos = _lastPosition;
+    final lastDate = _lastDate;
+    final moved = (lastPos != null && (pos - lastPos).inMilliseconds.abs() > 300) ||
+        (when != null && lastDate != null && when.difference(lastDate).inMilliseconds.abs() > 300);
+    _lastPosition = pos;
+    _lastDate = when;
+    if (!c.isPlaying && !moved) {
       // Waiting for video (or paused): never stay sped up, or the player can
       // wait forever at the live edge.
       _setSpeed(1.0);
