@@ -76,6 +76,13 @@ class _ChatViewState extends State<ChatView> {
     }
   }
 
+  /// Your names on Twitch and Kick (lowercase), to highlight messages that
+  /// mention you.
+  Set<String> get _myNames => {
+        if (Services.twitch.login != null) Services.twitch.login!.toLowerCase(),
+        if (KickFollows.username != null) KickFollows.username!.toLowerCase(),
+      };
+
   /// Names for "@": people who chatted most recently first, plus the
   /// streamer. "@" alone shows the most recent chatters; letters after it
   /// narrow it down (names starting with them first, then containing them).
@@ -172,6 +179,7 @@ class _ChatViewState extends State<ChatView> {
                     itemCount: c.messages.length,
                     itemBuilder: (context, i) => ChatLine(
                       message: c.messages[i],
+                      myNames: _myNames,
                       scale: scale,
                       showTimestamp: showTime,
                     ),
@@ -331,11 +339,29 @@ class ChatLine extends StatelessWidget {
     required this.message,
     this.scale = 1,
     this.showTimestamp = false,
+    this.myNames = const {},
   });
 
   final ChatMessage message;
   final double scale;
   final bool showTimestamp;
+
+  /// Your usernames (lowercase); messages mentioning them are highlighted.
+  final Set<String> myNames;
+
+  /// Whether the message mentions one of [myNames] (with or without @), and
+  /// isn't your own.
+  bool get mentionsMe {
+    if (myNames.isEmpty || message.deleted) return false;
+    if (myNames.contains(message.authorLogin.toLowerCase())) return false;
+    final text = message.fragments.whereType<TextFragment>().map((f) => f.text).join(' ').toLowerCase();
+    for (final name in myNames) {
+      if (name.isEmpty) continue;
+      final pattern = RegExp('(^|[^a-z0-9_])@?${RegExp.escape(name)}(\$|[^a-z0-9_])');
+      if (pattern.hasMatch(text)) return true;
+    }
+    return false;
+  }
 
   static const _roleIcons = <String, (IconData, Color)>{
     'broadcaster': (Icons.videocam_rounded, Color(0xFFE91916)),
@@ -422,9 +448,21 @@ class ChatLine extends StatelessWidget {
       }
     }
 
+    final mention = mentionsMe;
     return Container(
-      color: message.systemText != null ? Colors.white.withValues(alpha: 0.05) : null,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      // Messages that mention you: tinted, with a bar on the left, like
+      // Twitch and Kick do.
+      decoration: BoxDecoration(
+        color: mention
+            ? const Color(0xFFE91916).withValues(alpha: 0.18)
+            : message.systemText != null
+                ? Colors.white.withValues(alpha: 0.05)
+                : null,
+        border: mention
+            ? const Border(left: BorderSide(color: Color(0xFFE91916), width: 3))
+            : null,
+      ),
+      padding: EdgeInsets.fromLTRB(mention ? 9 : 12, 2, 12, 2),
       child: Opacity(
         opacity: message.isHistory ? 0.7 : 1,
         child: Column(
