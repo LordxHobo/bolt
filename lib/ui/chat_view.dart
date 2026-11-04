@@ -7,6 +7,7 @@ import '../chat/chat_controller.dart';
 import '../chat/chat_models.dart';
 import '../core/models.dart';
 import '../core/services.dart';
+import '../kick/kick_follows.dart';
 import 'settings_screen.dart';
 import 'widgets.dart';
 
@@ -61,7 +62,9 @@ class _ChatViewState extends State<ChatView> {
     final before = text.substring(0, math.max(0, math.min(cursor, text.length)));
     final word = before.split(RegExp(r'\s')).last;
     List<String> next = const [];
-    if (word.length >= 2) {
+    if (word.startsWith('@')) {
+      next = _mentionSuggestions(word.substring(1));
+    } else if (word.length >= 2) {
       final lower = word.toLowerCase();
       next = widget.controller.emoteNames
           .where((n) => n.toLowerCase().startsWith(lower))
@@ -71,6 +74,50 @@ class _ChatViewState extends State<ChatView> {
     if (next.length != _suggestions.length || !next.every(_suggestions.contains)) {
       setState(() => _suggestions = next);
     }
+  }
+
+  /// Names for "@": people who chatted most recently first, plus the
+  /// streamer. "@" alone shows the most recent chatters; letters after it
+  /// narrow it down (names starting with them first, then containing them).
+  List<String> _mentionSuggestions(String typed) {
+    final query = typed.toLowerCase();
+    final mine = {
+      Services.twitch.login?.toLowerCase(),
+      KickFollows.username?.toLowerCase(),
+    };
+    final seen = <String>{};
+    final names = <String>[];
+    void add(String name) {
+      final key = name.toLowerCase();
+      if (key.isEmpty || mine.contains(key) || !seen.add(key)) return;
+      names.add(name);
+    }
+
+    final messages = widget.controller.messages;
+    for (var i = 0; i < messages.length && i < 400; i++) {
+      final m = messages[i];
+      if (m.systemText != null && m.author.isEmpty) continue;
+      // The display name, unless it's in another script (then the login,
+      // which is what Twitch matches on).
+      final display = m.author.toLowerCase() == m.authorLogin.toLowerCase() ? m.author : m.authorLogin;
+      add(display);
+    }
+    add(widget.controller.channel.displayName);
+
+    final starts = <String>[];
+    final contains = <String>[];
+    for (final n in names) {
+      final lower = n.toLowerCase();
+      if (lower.startsWith(query)) {
+        starts.add(n);
+      } else if (query.length >= 2 && lower.contains(query)) {
+        contains.add(n);
+      }
+    }
+    final result = [...starts, ...contains].take(8).map((n) => '@$n').toList();
+    // Already typed out exactly: nothing left to suggest.
+    if (result.length == 1 && result.first.toLowerCase() == '@$query') return const [];
+    return result;
   }
 
   void _applySuggestion(String emote) {
