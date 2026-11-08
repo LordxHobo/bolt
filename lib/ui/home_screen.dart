@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../core/models.dart';
@@ -630,6 +632,17 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                   ),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: Services.settings.homeTiles ? 'Show as list' : 'Show as tiles',
+                    icon: Icon(Services.settings.homeTiles
+                        ? Icons.view_agenda_outlined
+                        : Icons.grid_view_rounded),
+                    onPressed: () async {
+                      await Services.settings.setHomeTiles(!Services.settings.homeTiles);
+                      if (mounted) setState(() {});
+                    },
+                  ),
                 ],
               ),
             ),
@@ -806,7 +819,16 @@ class _HomeScreenState extends State<HomeScreen>
           else if (entries.isEmpty && emptyText.isNotEmpty)
             _EmptyState(emptyText),
           if (liveCount > 0) SectionHeader('Live · $liveCount'),
-          for (var i = 0; i < entries.length; i++) ...[
+          if (settings.homeTiles && liveCount > 0)
+            _LiveTiles(
+              entries: entries.where((e) => e.primary.isLive).toList(),
+              settings: settings,
+              onOpen: _open,
+              onLongPress: _longPress,
+            ),
+          for (var i = settings.homeTiles ? math.max(firstOffline, 0) : 0;
+              i < entries.length && !(settings.homeTiles && firstOffline < 0);
+              i++) ...[
             if (i == firstOffline) const SectionHeader('Offline'),
             ChannelTile(
               info: entries[i].primary,
@@ -819,6 +841,185 @@ class _HomeScreenState extends State<HomeScreen>
               onLongPress: () => _longPress(entries[i]),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Live channels as tiles with the stream's preview picture.
+class _LiveTiles extends StatelessWidget {
+  const _LiveTiles({
+    required this.entries,
+    required this.settings,
+    required this.onOpen,
+    required this.onLongPress,
+  });
+
+  final List<_Entry> entries;
+  final Settings settings;
+  final void Function(ChannelInfo) onOpen;
+  final void Function(_Entry) onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    // Twitch and Kick refresh the preview every few minutes at the same
+    // address; this makes the picture refresh too (every 5 minutes).
+    final bucket = DateTime.now().millisecondsSinceEpoch ~/ (5 * 60 * 1000);
+    return LayoutBuilder(builder: (context, box) {
+      // Two per row on a phone, more on wider screens.
+      final columns = math.max(2, (box.maxWidth / 260).floor());
+      const gap = 10.0;
+      final width = (box.maxWidth - 24 - gap * (columns - 1)) / columns;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+        child: Wrap(
+          spacing: gap,
+          runSpacing: 14,
+          children: [
+            for (final e in entries)
+              SizedBox(
+                width: width,
+                child: _LiveTile(
+                  info: e.primary,
+                  alsoOn: e.other?.platform,
+                  isFavorite: e.isFavorite(settings),
+                  bucket: bucket,
+                  onTap: () => onOpen(e.primary),
+                  onLongPress: () => onLongPress(e),
+                ),
+              ),
+          ],
+        ),
+      );
+    });
+  }
+}
+
+class _LiveTile extends StatelessWidget {
+  const _LiveTile({
+    required this.info,
+    required this.alsoOn,
+    required this.isFavorite,
+    required this.bucket,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final ChannelInfo info;
+  final StreamPlatform? alsoOn;
+  final bool isFavorite;
+  final int bucket;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  String? get _thumb {
+    final url = info.thumbnailUrl;
+    if (url == null || url.isEmpty) return null;
+    return '$url${url.contains('?') ? '&' : '?'}t=$bucket';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final thumb = _thumb;
+    final placeholder = Container(
+      color: info.platform.color.withValues(alpha: 0.18),
+      alignment: Alignment.center,
+      child: ChannelAvatar(info: info, size: 40),
+    );
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      borderRadius: BorderRadius.circular(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (thumb == null)
+                    placeholder
+                  else
+                    CachedNetworkImage(
+                      imageUrl: thumb,
+                      fit: BoxFit.cover,
+                      fadeInDuration: const Duration(milliseconds: 150),
+                      placeholder: (_, __) => placeholder,
+                      errorWidget: (_, __, ___) => placeholder,
+                    ),
+                  Positioned(
+                    left: 6,
+                    top: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE91916),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text('LIVE',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white)),
+                    ),
+                  ),
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        PlatformBadge(info.platform, compact: true),
+                        if (alsoOn != null) ...[
+                          const SizedBox(width: 3),
+                          PlatformBadge(alsoOn!, compact: true),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (info.viewers != null)
+                    Positioned(
+                      left: 6,
+                      bottom: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text('${formatViewers(info.viewers)} watching',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              ChannelAvatar(info: info, size: 20),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(info.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+              ),
+              if (isFavorite) Icon(Icons.star_rounded, size: 15, color: Colors.amber.shade400),
+            ],
+          ),
+          if ((info.title ?? '').isNotEmpty)
+            Text(info.title!,
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall),
+          if ((info.category ?? '').isNotEmpty)
+            Text(info.category!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(color: muted)),
         ],
       ),
     );

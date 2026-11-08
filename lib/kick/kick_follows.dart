@@ -151,6 +151,14 @@ class KickFollows {
     return s.isEmpty || s == 'null' ? null : s;
   }
 
+  /// Kick sends the stream preview in a few shapes.
+  static String? _thumbnail(Map<String, dynamic>? m) {
+    if (m == null) return null;
+    final t = m['thumbnail'];
+    final tm = jMap(t);
+    return jStr(tm?['src']) ?? jStr(tm?['url']) ?? jStr(tm?['responsive']) ?? (t is String ? jStr(t) : null);
+  }
+
   static ChannelInfo? _parse(Object? raw) {
     final m = jMap(raw);
     if (m == null) return null;
@@ -176,6 +184,7 @@ class KickFollows {
       category: jStr(m['category_name']) ??
           (categories.isEmpty ? null : jStr(jMap(categories.first)?['name'])),
       viewers: jInt(m['viewer_count']) ?? jInt(live?['viewer_count']) ?? jInt(live?['viewers']),
+      thumbnailUrl: _thumbnail(live) ?? _thumbnail(m),
       kickChannelId: jInt(channel['id']),
     );
   }
