@@ -386,7 +386,7 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     try {
-      _kickFollows = await KickFollows.load();
+      _kickFollows = await _withKickPreviews(await KickFollows.load());
       _kickError = null;
       _kickExpired = false;
     } on KickSignedOutException {
@@ -397,6 +397,43 @@ class _HomeScreenState extends State<HomeScreen>
       _kickError = 'Could not load your Kick follows: $e';
     }
     _kickLoaded = true;
+  }
+
+  /// Kick's follow list usually leaves out the stream preview, so for live
+  /// channels it's looked up from the channel itself (kept 5 minutes).
+  final Map<String, ({String? url, DateTime at})> _kickPreviews = {};
+
+  Future<List<ChannelInfo>> _withKickPreviews(List<ChannelInfo> list) async {
+    final now = DateTime.now();
+    final need = [
+      for (final c in list)
+        if (c.isLive &&
+            (c.thumbnailUrl ?? '').isEmpty &&
+            (_kickPreviews[c.login] == null ||
+                now.difference(_kickPreviews[c.login]!.at) > const Duration(minutes: 5)))
+          c.login,
+    ];
+    // A few at a time, so the hidden kick.com page isn't flooded.
+    for (var i = 0; i < need.length; i += 4) {
+      await Future.wait([
+        for (final slug in need.skip(i).take(4))
+          () async {
+            try {
+              final info = await KickApi.getChannel(slug);
+              _kickPreviews[slug] = (url: info?.thumbnailUrl, at: now);
+            } catch (e) {
+              debugPrint('Kick preview for $slug failed: $e');
+            }
+          }(),
+      ]);
+    }
+    return [
+      for (final c in list)
+        if (c.isLive && (c.thumbnailUrl ?? '').isEmpty && _kickPreviews[c.login]?.url != null)
+          c.copyWith(thumbnailUrl: _kickPreviews[c.login]!.url)
+        else
+          c,
+    ];
   }
 
   // ---------------------------------------------------------------- actions
@@ -916,8 +953,20 @@ class _LiveTile extends StatelessWidget {
   String? get _thumb {
     final url = info.thumbnailUrl;
     if (url == null || url.isEmpty) return null;
+    // Kick's preview addresses are signed/unique already; adding to them can
+    // break them. Twitch's stay the same, so a time marker refreshes them.
+    if (info.platform == StreamPlatform.kick) return url;
     return '$url${url.contains('?') ? '&' : '?'}t=$bucket';
   }
+
+  /// Kick's picture server can turn away requests that don't look like they
+  /// come from a browser on kick.com.
+  static const _kickImageHeaders = {
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 '
+        '(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    'Referer': 'https://kick.com/',
+    'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -948,6 +997,9 @@ class _LiveTile extends StatelessWidget {
                   else
                     CachedNetworkImage(
                       imageUrl: thumb,
+                      httpHeaders: info.platform == StreamPlatform.kick ? _kickImageHeaders : null,
+                      // Refresh Kick previews every 5 minutes too (same address).
+                      cacheKey: info.platform == StreamPlatform.kick ? '$thumb#$bucket' : null,
                       fit: BoxFit.cover,
                       fadeInDuration: const Duration(milliseconds: 150),
                       placeholder: (_, __) => placeholder,
