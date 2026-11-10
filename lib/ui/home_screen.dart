@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/material.dart';
 
 import '../core/models.dart';
@@ -10,6 +11,7 @@ import '../core/services.dart';
 import '../core/settings.dart';
 import '../kick/kick_api.dart';
 import '../kick/kick_follows.dart';
+import '../kick/kick_web.dart';
 import '../twitch/twitch_api.dart';
 import '../twitch/twitch_web.dart';
 import 'channel_screen.dart';
@@ -986,15 +988,6 @@ class _LiveTile extends StatelessWidget {
     return text.length > 60 ? '${text.substring(0, 60)}…' : text;
   }
 
-  /// Kick's picture server can turn away requests that don't look like they
-  /// come from a browser on kick.com.
-  static const _kickImageHeaders = {
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 '
-        '(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
-    'Referer': 'https://kick.com/',
-    'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
-  };
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1021,12 +1014,22 @@ class _LiveTile extends StatelessWidget {
                 children: [
                   if (thumb == null)
                     _withNote(placeholder, 'no preview from ${info.platform.label}')
+                  else if (info.platform == StreamPlatform.kick)
+                    // Kick refuses apps; the picture comes through kick.com.
+                    FutureBuilder<Uint8List?>(
+                      future: KickWeb.instance.image(info.thumbnailUrl!),
+                      builder: (context, snap) {
+                        final bytes = snap.data;
+                        if (bytes != null) {
+                          return Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
+                        }
+                        if (snap.connectionState != ConnectionState.done) return placeholder;
+                        return _withNote(placeholder, 'preview blocked by Kick');
+                      },
+                    )
                   else
-                    // Flutter's own image loader (no disk cache needed: the
-                    // picture changes every few minutes anyway).
                     Image.network(
                       thumb,
-                      headers: info.platform == StreamPlatform.kick ? _kickImageHeaders : null,
                       fit: BoxFit.cover,
                       gaplessPlayback: true,
                       loadingBuilder: (context, child, progress) =>

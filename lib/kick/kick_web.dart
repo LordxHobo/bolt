@@ -122,6 +122,90 @@ class KickWeb {
     await ready.future.timeout(const Duration(seconds: 30), onTimeout: () {});
   }
 
+  /// Kick's picture server (images.kick.com) refuses apps with HTTP 403,
+  /// so stream previews are downloaded from inside the kick.com page, like
+  /// the website loads them. Kept for 5 minutes.
+  final Map<String, Future<Uint8List?>> _images = {};
+
+  Future<Uint8List?> image(String url) {
+    final bucket = DateTime.now().millisecondsSinceEpoch ~/ (5 * 60 * 1000);
+    final key = '$url#$bucket';
+    if (_images.length > 200) _images.clear();
+    return _images[key] ??= _image(url).then((bytes) {
+      if (bytes == null) _images.remove(key); // try again next time
+      return bytes;
+    });
+  }
+
+  Future<Uint8List?> _image(String url) async {
+    await _ensureWebView();
+    final controller = _controller;
+    if (controller == null) return null;
+    try {
+      final result = await controller.callAsyncJavaScript(
+        functionBody: r'''
+          const toDataUrl = (blob) => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          // 1. A normal download, as the website would.
+          try {
+            const r = await fetch(url, { credentials: 'omit' });
+            if (r.ok) return { data: await toDataUrl(await r.blob()) };
+          } catch (e) {}
+          // 2. As a picture on the page, copied off a canvas.
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = () => reject(new Error('picture did not load'));
+            img.src = url;
+          });
+          const c = document.createElement('canvas');
+          c.width = img.naturalWidth;
+          c.height = img.naturalHeight;
+          c.getContext('2d').drawImage(img, 0, 0);
+          return { data: c.toDataURL('image/jpeg', 0.8) };
+        ''',
+        arguments: {'url': url},
+      );
+      final value = result?.value;
+      final data = value is Map ? value['data']?.toString() : null;
+      if (data == null) {
+        debugPrint('Kick preview in page failed: ${result?.error}');
+        return _imageWithPageIdentity(url, controller);
+      }
+      final comma = data.indexOf(',');
+      return base64Decode(comma >= 0 ? data.substring(comma + 1) : data);
+    } catch (e) {
+      debugPrint('Kick preview failed: $e');
+      return null;
+    }
+  }
+
+  /// Downloads [url] directly, but as the kick.com page: its exact browser
+  /// name and its Cloudflare cookies.
+  Future<Uint8List?> _imageWithPageIdentity(String url, InAppWebViewController controller) async {
+    try {
+      final ua = (await controller.evaluateJavascript(source: 'navigator.userAgent'))?.toString();
+      final cookies = await CookieManager.instance().getCookies(url: WebUri('https://kick.com/'));
+      final cookie = cookies.map((c) => '${c.name}=${c.value}').join('; ');
+      final res = await httpClient.get(Uri.parse(url), headers: {
+        'User-Agent': (ua == null || ua.isEmpty) ? browserUserAgent : ua,
+        'Referer': 'https://kick.com/',
+        'Accept': 'image/webp,image/avif,image/*,*/*;q=0.8',
+        if (cookie.isNotEmpty) 'Cookie': cookie,
+      }).timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) return res.bodyBytes;
+      debugPrint('Kick preview direct: HTTP ${res.statusCode}');
+    } catch (e) {
+      debugPrint('Kick preview direct failed: $e');
+    }
+    return null;
+  }
+
   /// Reloads the hidden kick.com page, e.g. after signing in, so it picks up
   /// the new login cookies.
   Future<void> reloadPage() async {
