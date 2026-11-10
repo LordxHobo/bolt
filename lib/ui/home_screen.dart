@@ -964,7 +964,9 @@ class _LiveTile extends StatelessWidget {
 
   /// A tiny note on the placeholder saying why there's no preview (helps
   /// tell a missing address apart from a picture that wouldn't load).
-  static Widget _withNote(Widget placeholder, String note) => Stack(
+  static Widget _withNote(Widget placeholder, String note) => !Services.settings.previewNotes
+      ? placeholder
+      : Stack(
         fit: StackFit.expand,
         children: [
           placeholder,

@@ -97,6 +97,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? TextButton(onPressed: _signOutKick, child: const Text('Sign out'))
                     : FilledButton(onPressed: _signInKick, child: const Text('Sign in')),
               ),
+              const SectionHeader('Home'),
+              SwitchListTile(
+                title: const Text('Preview troubleshooting notes'),
+                subtitle: const Text('In tile view, tiles without a preview say why'),
+                value: _settings.previewNotes,
+                onChanged: (v) => _settings.setPreviewNotes(v),
+              ),
               const SectionHeader('Notifications'),
               ListTile(
                 leading: const Icon(Icons.notifications_active_outlined),

@@ -115,6 +115,9 @@ class Settings extends ChangeNotifier {
 
   /// Home: live channels as tiles with a preview picture (else a list).
   bool homeTiles = false;
+
+  /// Tiles: a small note on tiles without a preview, saying why.
+  bool previewNotes = false;
   bool landscapeChat = true;
 
   List<ChannelRef> favorites = [];
@@ -169,6 +172,7 @@ class Settings extends ChangeNotifier {
     chatTextScale = _prefs.getDouble('chatTextScale') ?? 1.0;
     showTimestamps = _prefs.getBool('showTimestamps') ?? false;
     homeTiles = _prefs.getBool('homeTiles') ?? false;
+    previewNotes = _prefs.getBool('previewNotes') ?? false;
     landscapeChat = _prefs.getBool('landscapeChat') ?? true;
     alertsServer = _prefs.getString('alertsServer') ?? '';
     alertsTopic = _prefs.getString('alertsTopic') ?? '';
@@ -290,6 +294,12 @@ class Settings extends ChangeNotifier {
   Future<void> setChatTextScale(double v) async {
     chatTextScale = v;
     await _prefs.setDouble('chatTextScale', v);
+    notifyListeners();
+  }
+
+  Future<void> setPreviewNotes(bool v) async {
+    previewNotes = v;
+    await _prefs.setBool('previewNotes', v);
     notifyListeners();
   }
 
