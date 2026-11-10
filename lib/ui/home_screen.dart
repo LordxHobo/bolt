@@ -406,10 +406,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<List<ChannelInfo>> _withKickPreviews(List<ChannelInfo> list) async {
     final now = DateTime.now();
+    // The follow list's own preview address points at an old recording
+    // picture that doesn't load, so every live channel is looked up.
     final need = [
       for (final c in list)
         if (c.isLive &&
-            (c.thumbnailUrl ?? '').isEmpty &&
             (_kickPreviews[c.login] == null ||
                 now.difference(_kickPreviews[c.login]!.at) > const Duration(minutes: 5)))
           c.login,
@@ -420,8 +421,7 @@ class _HomeScreenState extends State<HomeScreen>
         for (final slug in need.skip(i).take(4))
           () async {
             try {
-              final info = await KickApi.getChannel(slug);
-              _kickPreviews[slug] = (url: info?.thumbnailUrl, at: now);
+              _kickPreviews[slug] = (url: await KickApi.getLivePreview(slug), at: now);
             } catch (e) {
               debugPrint('Kick preview for $slug failed: $e');
             }
@@ -430,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
     return [
       for (final c in list)
-        if (c.isLive && (c.thumbnailUrl ?? '').isEmpty && _kickPreviews[c.login]?.url != null)
+        if (c.isLive && _kickPreviews[c.login]?.url != null)
           c.copyWith(thumbnailUrl: _kickPreviews[c.login]!.url)
         else
           c,

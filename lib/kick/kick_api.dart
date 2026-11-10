@@ -46,6 +46,23 @@ class KickApi {
     );
   }
 
+  /// The live stream's current preview picture (the one kick.com shows on
+  /// its stream cards), or null when not live / not available.
+  static Future<String?> getLivePreview(String slug) async {
+    final res = await KickWeb.instance
+        .get('https://kick.com/api/v2/channels/${Uri.encodeComponent(slug)}/livestream');
+    if (res.ok) {
+      final j = jMap(res.json);
+      final data = jMap(j?['data']) ?? j;
+      final t = data?['thumbnail'];
+      final tm = jMap(t);
+      final url = jStr(tm?['src']) ?? jStr(tm?['url']) ?? (t is String ? jStr(t) : null);
+      if (url != null && url.isNotEmpty) return url;
+    }
+    // Older shape: the channel's own details.
+    return (await getChannel(slug))?.thumbnailUrl;
+  }
+
   /// Recent chat messages (oldest first).
   static Future<List<ChatMessage>> getRecentMessages(int channelId) async {
     final res = await KickWeb.instance
