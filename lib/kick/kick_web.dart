@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show Size;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/net.dart';
@@ -138,9 +139,17 @@ class KickWeb {
   }
 
   Future<Uint8List?> _image(String url) async {
+    // Best way: show the picture in a small hidden page and take a snapshot
+    // of it. That needs nothing from Kick's server beyond what the website
+    // itself gets, so its blocking doesn't matter.
+    final shot = await _PreviewCamera.instance.capture(url);
+    if (shot.bytes != null) return shot.bytes;
     await _ensureWebView();
     final controller = _controller;
-    if (controller == null) return null;
+    if (controller == null) {
+      imageNotes[url] = 'snapshot: ${shot.note}; kick.com page not ready';
+      return null;
+    }
     try {
       final result = await controller.callAsyncJavaScript(
         functionBody: r'''
@@ -190,7 +199,7 @@ class KickWeb {
         if (direct == null) {
           // Why, for the note on the tile (temporary, to find the cause).
           final path = Uri.tryParse(url);
-          imageNotes[url] = '$steps, direct $_lastDirect · '
+          imageNotes[url] = 'snapshot: ${shot.note}; $steps, direct $_lastDirect · '
               '${path?.host ?? ''}${(path?.path.length ?? 0) > 40 ? '…${path!.path.substring(path.path.length - 40)}' : path?.path ?? ''}';
         }
         return direct;
@@ -199,6 +208,7 @@ class KickWeb {
       return base64Decode(comma >= 0 ? data.substring(comma + 1) : data);
     } catch (e) {
       debugPrint('Kick preview failed: $e');
+      imageNotes[url] = 'snapshot: ${shot.note}; page error: $e';
       return null;
     }
   }
@@ -340,5 +350,92 @@ class KickWeb {
       throw ApiException('Could not reach Kick. Check your connection and try again.');
     }
     return last;
+  }
+}
+
+/// Takes snapshots of Kick stream previews: a small hidden page (on
+/// kick.com's address, so the picture server sees it like the website)
+/// shows one picture at a time, and the picture is captured from the
+/// screen of that page. One at a time, in order.
+class _PreviewCamera {
+  _PreviewCamera._();
+  static final instance = _PreviewCamera._();
+
+  static const _width = 480.0;
+  static const _height = 270.0;
+
+  HeadlessInAppWebView? _view;
+  InAppWebViewController? _controller;
+  Completer<void>? _ready;
+  Future<void> _queue = Future.value();
+
+  Future<({Uint8List? bytes, String note})> capture(String url) {
+    final done = Completer<({Uint8List? bytes, String note})>();
+    _queue = _queue.then((_) async {
+      try {
+        done.complete(await _capture(url).timeout(const Duration(seconds: 15)));
+      } catch (e) {
+        done.complete((bytes: null, note: '$e'));
+      }
+    });
+    return done.future;
+  }
+
+  Future<void> _start() async {
+    if (_ready != null) return _ready!.future;
+    final ready = Completer<void>();
+    _ready = ready;
+    _view = HeadlessInAppWebView(
+      initialSize: const Size(_width, _height),
+      initialData: InAppWebViewInitialData(
+        data: '<!doctype html><html><head><meta name="viewport" '
+            'content="width=device-width,initial-scale=1"><style>'
+            'html,body{margin:0;padding:0;background:#000;overflow:hidden}'
+            'img{display:block;width:100vw;height:100vh;object-fit:cover}'
+            '</style></head><body><img id="p" alt=""></body></html>',
+        baseUrl: WebUri('https://kick.com/'),
+      ),
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: true,
+        transparentBackground: false,
+        disableContextMenu: true,
+      ),
+      onWebViewCreated: (c) => _controller = c,
+      onLoadStop: (c, _) {
+        _controller = c;
+        if (!ready.isCompleted) ready.complete();
+      },
+    );
+    await _view!.run();
+    await ready.future.timeout(const Duration(seconds: 10), onTimeout: () {});
+  }
+
+  Future<({Uint8List? bytes, String note})> _capture(String url) async {
+    await _start();
+    final c = _controller;
+    if (c == null) return (bytes: null, note: 'no page');
+    final result = await c.callAsyncJavaScript(
+      functionBody: r'''
+        const img = document.getElementById('p');
+        return await new Promise((resolve) => {
+          img.onload = () => resolve('ok ' + img.naturalWidth + 'x' + img.naturalHeight);
+          img.onerror = () => resolve('img fails');
+          img.src = url;
+        });
+      ''',
+      arguments: {'url': url},
+    );
+    final state = result?.value?.toString() ?? 'js ${result?.error}';
+    if (!state.startsWith('ok')) return (bytes: null, note: state);
+    // Let it paint.
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    final bytes = await c.takeScreenshot(
+      screenshotConfiguration: ScreenshotConfiguration(
+        compressFormat: CompressFormat.JPEG,
+        quality: 80,
+      ),
+    );
+    if (bytes == null || bytes.isEmpty) return (bytes: null, note: '$state, snapshot empty');
+    return (bytes: bytes, note: state);
   }
 }
