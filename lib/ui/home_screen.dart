@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../core/models.dart';
@@ -955,8 +954,36 @@ class _LiveTile extends StatelessWidget {
     if (url == null || url.isEmpty) return null;
     // Kick's preview addresses are signed/unique already; adding to them can
     // break them. Twitch's stay the same, so a time marker refreshes them.
-    if (info.platform == StreamPlatform.kick) return url;
+    // (A #fragment isn't sent to the server, but still makes the picture
+    // refresh every 5 minutes.)
+    if (info.platform == StreamPlatform.kick) return '$url#t=$bucket';
     return '$url${url.contains('?') ? '&' : '?'}t=$bucket';
+  }
+
+  /// A tiny note on the placeholder saying why there's no preview (helps
+  /// tell a missing address apart from a picture that wouldn't load).
+  static Widget _withNote(Widget placeholder, String note) => Stack(
+        fit: StackFit.expand,
+        children: [
+          placeholder,
+          Positioned(
+            right: 6,
+            bottom: 6,
+            left: 60,
+            child: Text(note,
+                textAlign: TextAlign.right,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 9, color: Colors.white70)),
+          ),
+        ],
+      );
+
+  static String _shortError(Object error) {
+    final text = '$error';
+    final code = RegExp(r'statusCode: (\d+)').firstMatch(text)?.group(1);
+    if (code != null) return 'preview HTTP $code';
+    return text.length > 60 ? '${text.substring(0, 60)}…' : text;
   }
 
   /// Kick's picture server can turn away requests that don't look like they
@@ -993,17 +1020,21 @@ class _LiveTile extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   if (thumb == null)
-                    placeholder
+                    _withNote(placeholder, 'no preview from ${info.platform.label}')
                   else
-                    CachedNetworkImage(
-                      imageUrl: thumb,
-                      httpHeaders: info.platform == StreamPlatform.kick ? _kickImageHeaders : null,
-                      // Refresh Kick previews every 5 minutes too (same address).
-                      cacheKey: info.platform == StreamPlatform.kick ? '$thumb#$bucket' : null,
+                    // Flutter's own image loader (no disk cache needed: the
+                    // picture changes every few minutes anyway).
+                    Image.network(
+                      thumb,
+                      headers: info.platform == StreamPlatform.kick ? _kickImageHeaders : null,
                       fit: BoxFit.cover,
-                      fadeInDuration: const Duration(milliseconds: 150),
-                      placeholder: (_, __) => placeholder,
-                      errorWidget: (_, __, ___) => placeholder,
+                      gaplessPlayback: true,
+                      loadingBuilder: (context, child, progress) =>
+                          progress == null ? child : placeholder,
+                      errorBuilder: (context, error, _) {
+                        debugPrint('Preview for ${info.login} failed: $error ($thumb)');
+                        return _withNote(placeholder, _shortError(error));
+                      },
                     ),
                   Positioned(
                     left: 6,
