@@ -970,11 +970,11 @@ class _LiveTile extends StatelessWidget {
           placeholder,
           Positioned(
             right: 6,
-            bottom: 6,
-            left: 60,
+            bottom: 28, // above the viewer count
+            left: 6,
             child: Text(note,
                 textAlign: TextAlign.right,
-                maxLines: 2,
+                maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 9, color: Colors.white70)),
           ),
@@ -1024,7 +1024,8 @@ class _LiveTile extends StatelessWidget {
                           return Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
                         }
                         if (snap.connectionState != ConnectionState.done) return placeholder;
-                        return _withNote(placeholder, 'preview blocked by Kick');
+                        return _withNote(placeholder,
+                            KickWeb.instance.imageNotes[info.thumbnailUrl!] ?? 'preview blocked by Kick');
                       },
                     )
                   else

@@ -150,32 +150,50 @@ class KickWeb {
             reader.onerror = reject;
             reader.readAsDataURL(blob);
           });
+          const steps = [];
           // 1. A normal download, as the website would.
           try {
             const r = await fetch(url, { credentials: 'omit' });
+            steps.push('fetch ' + r.status);
             if (r.ok) return { data: await toDataUrl(await r.blob()) };
-          } catch (e) {}
+          } catch (e) { steps.push('fetch ' + (e && e.name || 'error')); }
           // 2. As a picture on the page, copied off a canvas.
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = () => reject(new Error('picture did not load'));
+          const load = (cors) => new Promise((resolve) => {
+            const img = new Image();
+            if (cors) img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(null);
             img.src = url;
           });
-          const c = document.createElement('canvas');
-          c.width = img.naturalWidth;
-          c.height = img.naturalHeight;
-          c.getContext('2d').drawImage(img, 0, 0);
-          return { data: c.toDataURL('image/jpeg', 0.8) };
+          const img = await load(true);
+          if (img) {
+            try {
+              const c = document.createElement('canvas');
+              c.width = img.naturalWidth;
+              c.height = img.naturalHeight;
+              c.getContext('2d').drawImage(img, 0, 0);
+              return { data: c.toDataURL('image/jpeg', 0.8) };
+            } catch (e) { steps.push('canvas ' + (e && e.name || 'error')); }
+          } else {
+            const plain = await load(false);
+            steps.push(plain ? 'img ok (no cors)' : 'img fails');
+          }
+          return { steps: steps.join(', ') };
         ''',
         arguments: {'url': url},
       );
       final value = result?.value;
       final data = value is Map ? value['data']?.toString() : null;
       if (data == null) {
-        debugPrint('Kick preview in page failed: ${result?.error}');
-        return _imageWithPageIdentity(url, controller);
+        final steps = value is Map ? value['steps']?.toString() : result?.error;
+        final direct = await _imageWithPageIdentity(url, controller);
+        if (direct == null) {
+          // Why, for the note on the tile (temporary, to find the cause).
+          final path = Uri.tryParse(url);
+          imageNotes[url] = '$steps, direct $_lastDirect · '
+              '${path?.host ?? ''}${(path?.path.length ?? 0) > 40 ? '…${path!.path.substring(path.path.length - 40)}' : path?.path ?? ''}';
+        }
+        return direct;
       }
       final comma = data.indexOf(',');
       return base64Decode(comma >= 0 ? data.substring(comma + 1) : data);
@@ -187,6 +205,10 @@ class KickWeb {
 
   /// Downloads [url] directly, but as the kick.com page: its exact browser
   /// name and its Cloudflare cookies.
+  /// Why a Kick preview couldn't be had (shown on the tile for now).
+  final Map<String, String> imageNotes = {};
+  String _lastDirect = '';
+
   Future<Uint8List?> _imageWithPageIdentity(String url, InAppWebViewController controller) async {
     try {
       final ua = (await controller.evaluateJavascript(source: 'navigator.userAgent'))?.toString();
@@ -199,8 +221,10 @@ class KickWeb {
         if (cookie.isNotEmpty) 'Cookie': cookie,
       }).timeout(const Duration(seconds: 15));
       if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) return res.bodyBytes;
+      _lastDirect = '${res.statusCode}';
       debugPrint('Kick preview direct: HTTP ${res.statusCode}');
     } catch (e) {
+      _lastDirect = 'error';
       debugPrint('Kick preview direct failed: $e');
     }
     return null;
