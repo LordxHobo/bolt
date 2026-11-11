@@ -149,6 +149,8 @@ String? jStr(Object? v) {
   return v.toString();
 }
 
+num? jNum(Object? v) => v is num ? v : (v is String ? num.tryParse(v) : null);
+
 int? jInt(Object? v) {
   if (v is int) return v;
   if (v is num) return v.toInt();

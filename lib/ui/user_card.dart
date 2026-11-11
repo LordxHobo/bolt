@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../chat/chat_controller.dart';
 import '../chat/chat_models.dart';
+import '../chat/seventv_cosmetics.dart';
 import '../core/models.dart';
 import '../core/net.dart';
 import '../kick/kick_web.dart';
@@ -192,9 +193,14 @@ class _UserCardState extends State<_UserCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(m.author,
-                          style: theme.textTheme.titleLarge
-                              ?.copyWith(color: nameColor, fontWeight: FontWeight.w800)),
+                      Builder(builder: (context) {
+                        final style = theme.textTheme.titleLarge!
+                            .copyWith(color: nameColor, fontWeight: FontWeight.w800);
+                        final paint = SevenTvCosmetics.instance.paintFor(_channel.platform, m.authorId);
+                        return paint != null && paint.drawable
+                            ? PaintedName(text: m.author, paint: paint, style: style)
+                            : Text(m.author, style: style);
+                      }),
                       if (m.author.toLowerCase() != m.authorLogin.toLowerCase())
                         Text(m.authorLogin, style: theme.textTheme.bodySmall?.copyWith(color: muted)),
                     ],
@@ -204,12 +210,29 @@ class _UserCardState extends State<_UserCard> {
                   const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
               ],
             ),
-            if (badges.isNotEmpty) ...[
+            if (badges.isNotEmpty ||
+                SevenTvCosmetics.instance.badgeFor(_channel.platform, m.authorId) != null) ...[
               const SizedBox(height: 14),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
+                  if (SevenTvCosmetics.instance.badgeFor(_channel.platform, m.authorId) case final stv?)
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(6, 4, 10, 4),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CachedNetworkImage(imageUrl: stv.url, width: 20, height: 20),
+                          const SizedBox(width: 6),
+                          Text(stv.name, style: theme.textTheme.bodySmall),
+                        ],
+                      ),
+                    ),
                   for (final b in badges)
                     if (ChatLine.badgeWidget(b, widget.controller.badges, 20) case final w?)
                       Container(
@@ -232,6 +255,8 @@ class _UserCardState extends State<_UserCard> {
               ),
             ],
             const SizedBox(height: 8),
+            if (SevenTvCosmetics.instance.paintFor(_channel.platform, m.authorId) case final paint?)
+              info(Icons.brush_outlined, '7TV paint: ${paint.name}'),
             if (p?.createdAt != null) info(Icons.cake_outlined, 'Account created ${_date(p!.createdAt!)}'),
             if (p?.followingSince != null)
               info(Icons.favorite_border_rounded, 'Following since ${_since(p!.followingSince!)}'),

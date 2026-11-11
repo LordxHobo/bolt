@@ -9,6 +9,7 @@ import '../twitch/twitch_chat.dart';
 import 'badges.dart';
 import 'chat_models.dart';
 import 'seventv.dart';
+import 'seventv_cosmetics.dart';
 
 /// Owns one channel's chat connection, emotes and message list.
 class ChatController extends ChangeNotifier {
@@ -22,6 +23,9 @@ class ChatController extends ChangeNotifier {
   void _badgesLoaded() {
     if (!_disposed) notifyListeners();
   }
+
+  /// Redraws the chat when 7TV badges/paints come in.
+  bool _listeningToCosmetics = false;
 
   static const maxMessages = 400;
 
@@ -48,6 +52,10 @@ class ChatController extends ChangeNotifier {
   Iterable<String> get emoteNames => _emotes.keys;
 
   Future<void> start() async {
+    if (!_listeningToCosmetics) {
+      _listeningToCosmetics = true;
+      SevenTvCosmetics.instance.addListener(_badgesLoaded);
+    }
     unawaited(_loadEmotes());
     unawaited(badges.load());
     await _connect();
@@ -132,6 +140,7 @@ class ChatController extends ChangeNotifier {
         final existing = messages.map((m) => m.id).toSet();
         for (final m in ev.messages) {
           if (existing.contains(m.id)) continue;
+          SevenTvCosmetics.instance.request(channel.platform, m.authorId);
           messages.add(m.copyWith(fragments: applyEmotes(m.fragments, _emotes)));
         }
         messages.sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -163,6 +172,8 @@ class ChatController extends ChangeNotifier {
   }
 
   void _add(ChatMessage m) {
+    // Their 7TV badge and name paint, if they have one on.
+    SevenTvCosmetics.instance.request(channel.platform, m.authorId);
     final processed = m.copyWith(fragments: applyEmotes(m.fragments, _emotes));
     if (_paused) {
       _pending.add(processed);
@@ -239,6 +250,7 @@ class ChatController extends ChangeNotifier {
   @override
   void dispose() {
     badges.removeListener(_badgesLoaded);
+    if (_listeningToCosmetics) SevenTvCosmetics.instance.removeListener(_badgesLoaded);
     _disposed = true;
     _sub?.cancel();
     _client?.dispose();

@@ -113,6 +113,9 @@ class Settings extends ChangeNotifier {
   double chatTextScale = 1.0;
   bool showTimestamps = false;
 
+  /// Chat: draw 7TV name paints.
+  bool showPaints = true;
+
   /// Home: live channels as tiles with a preview picture (else a list).
   bool homeTiles = false;
 
@@ -171,6 +174,7 @@ class Settings extends ChangeNotifier {
         orElse: () => HomeView.following);
     chatTextScale = _prefs.getDouble('chatTextScale') ?? 1.0;
     showTimestamps = _prefs.getBool('showTimestamps') ?? false;
+    showPaints = _prefs.getBool('showPaints') ?? true;
     homeTiles = _prefs.getBool('homeTiles') ?? false;
     previewNotes = _prefs.getBool('previewNotes') ?? false;
     landscapeChat = _prefs.getBool('landscapeChat') ?? true;
@@ -306,6 +310,12 @@ class Settings extends ChangeNotifier {
   Future<void> setHomeTiles(bool v) async {
     homeTiles = v;
     await _prefs.setBool('homeTiles', v);
+    notifyListeners();
+  }
+
+  Future<void> setShowPaints(bool v) async {
+    showPaints = v;
+    await _prefs.setBool('showPaints', v);
     notifyListeners();
   }
 

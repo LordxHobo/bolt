@@ -256,6 +256,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         SwitchListTile(
+          title: const Text('7TV name paints'),
+          subtitle: const Text('Colored and gradient names people picked on 7TV'),
+          value: _settings.showPaints,
+          onChanged: (v) => _settings.setShowPaints(v),
+        ),
+        SwitchListTile(
           title: const Text('Show timestamps'),
           value: _settings.showTimestamps,
           onChanged: (v) => _settings.setShowTimestamps(v),
@@ -301,7 +307,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ? (_settings.relayAdBlock ? 'On' : 'Off')
                       : _settings.adBlock.label,
                   () => _open('Twitch ad blocking', _adBlocking)),
-              category(Icons.chat_bubble_outline_rounded, 'Chat', 'Text size, timestamps, landscape',
+              category(Icons.chat_bubble_outline_rounded, 'Chat', 'Text size, timestamps, 7TV paints, landscape',
                   () => _open('Chat', _chat)),
               category(Icons.notifications_active_outlined, 'Live alerts',
                   _settings.alertsServer.isEmpty

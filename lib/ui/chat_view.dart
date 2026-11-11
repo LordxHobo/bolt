@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../chat/badges.dart';
 import '../chat/chat_controller.dart';
 import '../chat/chat_models.dart';
+import '../chat/seventv_cosmetics.dart';
 import '../core/models.dart';
 import '../core/services.dart';
 import '../kick/kick_follows.dart';
@@ -592,7 +593,7 @@ class ChatLine extends StatelessWidget {
           child: Padding(padding: const EdgeInsets.only(right: 3), child: w),
         ));
       }
-    } else {
+    } else if (message.badges.isEmpty) {
       for (final role in message.roles) {
         final icon = _roleIcons[role];
         if (icon == null) continue;
@@ -605,10 +606,38 @@ class ChatLine extends StatelessWidget {
         ));
       }
     }
-    spans.add(TextSpan(
-      text: message.author,
-      style: base.copyWith(color: nameColor, fontWeight: FontWeight.w700),
-    ));
+    final platform = badges?.channel.platform;
+    final stvBadge = platform == null ? null : SevenTvCosmetics.instance.badgeFor(platform, message.authorId);
+    if (stvBadge != null) {
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        child: Padding(
+          padding: const EdgeInsets.only(right: 3),
+          child: Tooltip(
+            message: stvBadge.name,
+            child: CachedNetworkImage(
+              imageUrl: stvBadge.url,
+              width: 18 * scale,
+              height: 18 * scale,
+              fit: BoxFit.contain,
+              fadeInDuration: Duration.zero,
+              errorWidget: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      ));
+    }
+    final stvPaint = platform == null ? null : SevenTvCosmetics.instance.paintFor(platform, message.authorId);
+    final nameStyle = base.copyWith(color: nameColor, fontWeight: FontWeight.w700);
+    if (stvPaint != null && stvPaint.drawable && Services.settings.showPaints) {
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.baseline,
+        baseline: TextBaseline.alphabetic,
+        child: PaintedName(text: message.author, paint: stvPaint, style: nameStyle),
+      ));
+    } else {
+      spans.add(TextSpan(text: message.author, style: nameStyle));
+    }
     spans.add(TextSpan(text: message.isAction ? ' ' : ': ', style: base));
 
     final bodyStyle = message.isAction
