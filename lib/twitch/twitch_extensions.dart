@@ -27,10 +27,6 @@ class ChannelExtension {
         'component' => 'Component',
         _ => 'Panel',
       };
-
-  /// Twitch's own pop-out page for it (works for panels).
-  WebUri popoutUrl(String login) =>
-      WebUri('https://www.twitch.tv/popout/$login/extensions/$id-$version/$anchor');
 }
 
 /// The channel's full desktop page: overlays and components only run on top

@@ -146,20 +146,27 @@ class _ExtensionPageState extends State<_ExtensionPage> {
   InAppWebViewController? _web;
   double _progress = 0;
   String? _status;
+  int _load = 0;
 
-  /// Panels open in Twitch's pop-out; overlays and components only exist on
-  /// the full channel page.
-  late bool _popout = widget.extension.isPanel;
-
-  WebUri get _url => _popout ? widget.extension.popoutUrl(widget.login) : channelPageUrl(widget.login);
-
-  void _switch(bool popout) {
-    if (popout == _popout) return;
-    setState(() {
-      _popout = popout;
-      _status = null;
-    });
-    _web?.loadUrl(urlRequest: URLRequest(url: _url));
+  /// Scrolls the page to this extension once Twitch has put it there
+  /// (panels sit under the video, so they're otherwise off screen).
+  Future<void> _findExtension(InAppWebViewController c) async {
+    final load = ++_load;
+    final id = widget.extension.id;
+    for (var i = 0; i < 20; i++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (!mounted || load != _load) return;
+      try {
+        final found = await c.evaluateJavascript(
+          source: "(function () { var f = document.querySelector('iframe[src*=\"$id\"]'); "
+              "if (!f) return false; f.scrollIntoView({block: 'center'}); return true; })();",
+        );
+        if (found == true) break;
+      } catch (_) {}
+    }
+    if (!mounted || load != _load) return;
+    final line = await TwitchExtensions.probe(c);
+    if (mounted && line != null) setState(() => _status = line);
   }
 
   @override
@@ -181,46 +188,26 @@ class _ExtensionPageState extends State<_ExtensionPage> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: true, label: Text('Pop-out')),
-                ButtonSegment(value: false, label: Text('Channel page')),
-              ],
-              selected: {_popout},
-              showSelectedIcon: false,
-              onSelectionChanged: (s) => _switch(s.first),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+            child: Text(
+              _status ??
+                  (widget.extension.isPanel
+                      ? 'Panels sit under the video; the page scrolls to it once it loads. Pinch to zoom.'
+                      : '${widget.extension.kind}s show on the video. Pinch to zoom.'),
+              style: theme.textTheme.labelSmall?.copyWith(color: Colors.white60),
             ),
           ),
-          if (_status != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
-              child: Text(_status!, style: theme.textTheme.labelSmall?.copyWith(color: Colors.white60)),
-            ),
-          if (!_popout)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-              child: Text(
-                '${widget.extension.kind}s show on or under the video. Pinch to zoom.',
-                style: theme.textTheme.labelSmall?.copyWith(color: Colors.white60),
-              ),
-            ),
           const Divider(height: 1),
           Expanded(
             child: InAppWebView(
-              initialUrlRequest: URLRequest(url: _url),
+              initialUrlRequest: URLRequest(url: channelPageUrl(widget.login)),
               initialUserScripts: extensionUserScripts(),
               initialSettings: extensionWebSettings(),
               onWebViewCreated: (c) => _web = c,
               onProgressChanged: (_, p) {
                 if (mounted) setState(() => _progress = p / 100);
               },
-              onLoadStop: (c, _) async {
-                // Give the page a moment to build its extension frames.
-                await Future<void>.delayed(const Duration(seconds: 6));
-                final line = await TwitchExtensions.probe(c);
-                if (mounted && line != null) setState(() => _status = line);
-              },
+              onLoadStop: (c, _) => _findExtension(c),
               onReceivedError: (_, req, err) {
                 if ((req.isForMainFrame ?? false) && mounted) setState(() => _status = 'Error: ${err.description}');
               },
