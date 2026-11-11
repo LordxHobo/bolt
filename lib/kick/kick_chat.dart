@@ -183,6 +183,14 @@ class KickChatClient implements ChatClient {
       _subscribed = true;
       _backoff = 2;
       _emit(const ChatStatusEvent(ChatConnection.connected));
+      // The channel's own feed: hosts/raids and predictions.
+      final channel = channelId;
+      if (channel != null) {
+        _ws?.sink.add(jsonEncode({
+          'subscribe': {'channel': 'channel.$channel'},
+          'id': ++_seq,
+        }));
+      }
       return;
     }
     if (m['refresh'] != null) {
@@ -241,6 +249,66 @@ class KickChatClient implements ChatClient {
         if (login != null) _emit(ChatClearEvent(login.toLowerCase()));
       case 'ChatroomClearEvent':
         _emit(const ChatClearEvent());
+      default:
+        _handleLiveEvent(name, data);
+    }
+  }
+
+  /// Polls, predictions and hosts (Kick's raids).
+  void _handleLiveEvent(String name, Map<String, dynamic> data) {
+    if (name.contains('Poll')) {
+      final p = jMap(data['poll']);
+      if (name.contains('Delete') || p == null) {
+        _emit(const ChatPollEvent(null));
+        return;
+      }
+      final remaining = jInt(p['remaining']);
+      _emit(ChatPollEvent(ChatPoll(
+        id: jStr(p['id']) ?? jStr(p['title']) ?? '',
+        title: jStr(p['title']) ?? 'Poll',
+        options: [
+          for (final o in jList(p['options']))
+            if (jMap(o) case final op?) (jStr(op['label']) ?? '', jInt(op['votes']) ?? 0),
+        ],
+        endsAt: remaining == null ? null : DateTime.now().add(Duration(seconds: remaining)),
+        ended: remaining != null && remaining <= 0,
+      )));
+      return;
+    }
+    if (name.contains('Prediction')) {
+      final p = jMap(data['prediction']) ?? data;
+      final created = jTime(p['created_at']);
+      final duration = jInt(p['duration']);
+      _emit(ChatPredictionEvent(ChatPrediction(
+        id: jStr(p['id']) ?? '',
+        title: jStr(p['title']) ?? 'Prediction',
+        status: (jStr(p['state']) ?? jStr(p['status']) ?? 'ACTIVE').toUpperCase(),
+        outcomes: [
+          for (final o in jList(p['outcomes']))
+            if (jMap(o) case final oc?)
+              (
+                id: jStr(oc['id']) ?? jInt(oc['id'])?.toString() ?? '',
+                title: jStr(oc['title']) ?? '',
+                points: jInt(oc['total_vote_amount']) ?? 0,
+                users: jInt(oc['vote_count']) ?? 0,
+              ),
+        ],
+        locksAt: jTime(p['locked_at']) ??
+            (created == null || duration == null ? null : created.add(Duration(seconds: duration))),
+        winnerId: jStr(p['winning_outcome_id']) ?? jInt(p['winning_outcome_id'])?.toString(),
+      )));
+      return;
+    }
+    if (name.contains('ChatMoveToSupportedChannel') || name == 'StreamHostedEvent') {
+      final hosted = jMap(data['hosted']) ?? jMap(data['channel']);
+      final slug = jStr(hosted?['slug']) ?? jStr(data['slug']);
+      if (slug == null) return;
+      _emit(ChatRaidEvent(ChatRaid(
+        targetLogin: slug.toLowerCase(),
+        targetName: jStr(hosted?['username']) ?? slug,
+        viewers: jInt(hosted?['viewers_count']) ?? jInt(data['viewers_count']),
+        started: true,
+      )));
     }
   }
 

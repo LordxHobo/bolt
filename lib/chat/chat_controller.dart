@@ -8,6 +8,7 @@ import '../kick/kick_chat.dart';
 import '../kick/kick_web.dart';
 import '../twitch/twitch_api.dart';
 import '../twitch/twitch_chat.dart';
+import '../twitch/twitch_live_events.dart';
 import 'badges.dart';
 import 'chat_models.dart';
 import 'seventv.dart';
@@ -43,6 +44,22 @@ class ChatController extends ChangeNotifier {
 
   Map<String, Emote> _emotes = {};
 
+  /// What's happening in the channel right now (shown above chat).
+  ChatPoll? poll;
+  ChatPrediction? prediction;
+  ChatRaid? raid;
+  Timer? _pollClear, _predictionClear;
+  TwitchLiveEvents? _twitchLive;
+  StreamSubscription<ChatEvent>? _twitchLiveSub;
+
+  void _startTwitchLive(String? channelId) {
+    if (_disposed || channel.platform != StreamPlatform.twitch || channelId == null || _twitchLive != null) return;
+    final live = TwitchLiveEvents(channelId);
+    _twitchLive = live;
+    _twitchLiveSub = live.events.listen(_onEvent);
+    unawaited(live.connect());
+  }
+
   /// For the emote picker: 7TV channel and global emotes, and (loaded when
   /// the picker first opens) the Twitch/Kick emotes you can use.
   Map<String, Emote> sevenTvChannel = const {};
@@ -70,6 +87,7 @@ class ChatController extends ChangeNotifier {
     }
     unawaited(_loadEmotes());
     unawaited(badges.load());
+    _startTwitchLive(channel.userId);
     await _connect();
   }
 
@@ -144,7 +162,35 @@ class ChatController extends ChangeNotifier {
       case ChatStatusEvent ev:
         status = ev.status;
         statusText = ev.text;
+      case ChatPollEvent ev:
+        poll = ev.poll;
+        _pollClear?.cancel();
+        final endsAt = ev.poll?.endsAt;
+        if (ev.poll != null && endsAt != null && !ev.poll!.ended) {
+          // Kick doesn't always say it ended; keep the results a bit after.
+          _pollClear = Timer(endsAt.difference(DateTime.now()) + const Duration(seconds: 20), () {
+            poll = null;
+            if (!_disposed) notifyListeners();
+          });
+        } else if (ev.poll?.ended ?? false) {
+          _pollClear = Timer(const Duration(seconds: 30), () {
+            poll = null;
+            if (!_disposed) notifyListeners();
+          });
+        }
+      case ChatPredictionEvent ev:
+        prediction = ev.prediction;
+        _predictionClear?.cancel();
+        if (ev.prediction?.isOver ?? false) {
+          _predictionClear = Timer(const Duration(seconds: 60), () {
+            prediction = null;
+            if (!_disposed) notifyListeners();
+          });
+        }
+      case ChatRaidEvent ev:
+        raid = ev.raid;
       case ChatRoomIdEvent ev:
+        _startTwitchLive(ev.roomId);
         // The channel lookup may have failed; chat still tells us the id.
         if (_emoteUserId == null) unawaited(_loadEmotes(ev.roomId));
       case ChatMessageEvent ev:
@@ -357,6 +403,10 @@ class ChatController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _pollClear?.cancel();
+    _predictionClear?.cancel();
+    _twitchLiveSub?.cancel();
+    _twitchLive?.close();
     badges.removeListener(_badgesLoaded);
     if (_listeningToCosmetics) SevenTvCosmetics.instance.removeListener(_badgesLoaded);
     _disposed = true;

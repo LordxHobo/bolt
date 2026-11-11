@@ -13,6 +13,7 @@ import '../core/models.dart';
 import '../core/services.dart';
 import '../kick/kick_follows.dart';
 import 'emote_picker.dart';
+import 'live_event_cards.dart';
 import 'settings_screen.dart';
 import 'thread_sheet.dart';
 import 'user_card.dart';
@@ -205,6 +206,7 @@ class _ChatViewState extends State<ChatView> {
         return Column(
           children: [
             if (c.status != ChatConnection.connected) _StatusBar(controller: c),
+            LiveEventCards(controller: c),
             Expanded(
               child: Stack(
                 children: [

@@ -173,6 +173,67 @@ class ChatRoomIdEvent extends ChatEvent {
   const ChatRoomIdEvent(this.roomId);
 }
 
+/// A channel poll (null [ChatPollEvent.poll] = gone).
+class ChatPoll {
+  final String id;
+  final String title;
+  final List<(String title, int votes)> options;
+  final DateTime? endsAt;
+  final bool ended;
+  const ChatPoll({required this.id, required this.title, required this.options, this.endsAt, this.ended = false});
+
+  int get totalVotes => options.fold(0, (a, o) => a + o.$2);
+}
+
+/// A channel-points (Twitch) or Kick prediction.
+class ChatPrediction {
+  final String id;
+  final String title;
+
+  /// ACTIVE (open), LOCKED, RESOLVED or CANCELED.
+  final String status;
+  final List<({String id, String title, int points, int users})> outcomes;
+  final DateTime? locksAt;
+  final String? winnerId;
+  const ChatPrediction({
+    required this.id,
+    required this.title,
+    required this.status,
+    required this.outcomes,
+    this.locksAt,
+    this.winnerId,
+  });
+
+  bool get isOpen => status == 'ACTIVE';
+  bool get isOver => status == 'RESOLVED' || status == 'CANCELED' || status == 'CANCELLED';
+}
+
+/// The channel is raiding (Twitch) or hosting (Kick) another channel.
+class ChatRaid {
+  final String targetLogin;
+  final String targetName;
+  final int? viewers;
+
+  /// True once it has actually happened (Twitch counts down first).
+  final bool started;
+  const ChatRaid({required this.targetLogin, required this.targetName, this.viewers, this.started = false});
+}
+
+class ChatPollEvent extends ChatEvent {
+  final ChatPoll? poll;
+  const ChatPollEvent(this.poll);
+}
+
+class ChatPredictionEvent extends ChatEvent {
+  final ChatPrediction? prediction;
+  const ChatPredictionEvent(this.prediction);
+}
+
+class ChatRaidEvent extends ChatEvent {
+  final ChatRaid? raid;
+  const ChatRaidEvent(this.raid);
+}
+
 class ChatStatusEvent extends ChatEvent {
   final ChatConnection status;
   final String? text;
