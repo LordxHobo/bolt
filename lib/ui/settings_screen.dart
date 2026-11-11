@@ -6,6 +6,7 @@ import '../core/services.dart';
 import '../core/settings.dart';
 import '../twitch/adblock.dart';
 import '../kick/kick_follows.dart';
+import 'chat_filters_screen.dart';
 import 'kick_web_login_screen.dart';
 import 'live_alerts_screen.dart';
 import 'twitch_web_login_screen.dart';
@@ -243,6 +244,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return items;
   }
 
+  String _filterSummary() {
+    final s = _settings;
+    final parts = [
+      if (s.hideBots) 'bots hidden',
+      if (s.mutedUsers.isNotEmpty) '${s.mutedUsers.length} people hidden',
+      if (s.mutedWords.isNotEmpty) '${s.mutedWords.length} words hidden',
+      if (s.highlightWords.isNotEmpty) '${s.highlightWords.length} highlight words',
+    ];
+    return parts.isEmpty ? 'Hide bots, people or words; highlight keywords' : parts.join(' · ');
+  }
+
   List<Widget> _chat(BuildContext context) => [
         ListTile(
           title: const Text('Text size'),
@@ -253,6 +265,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             divisions: 8,
             label: '${(_settings.chatTextScale * 100).round()}%',
             onChanged: (v) => _settings.setChatTextScale(v),
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.filter_alt_outlined),
+          title: const Text('Filters'),
+          subtitle: Text(_filterSummary()),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const ChatFiltersScreen()),
           ),
         ),
         SwitchListTile(
@@ -307,7 +328,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ? (_settings.relayAdBlock ? 'On' : 'Off')
                       : _settings.adBlock.label,
                   () => _open('Twitch ad blocking', _adBlocking)),
-              category(Icons.chat_bubble_outline_rounded, 'Chat', 'Text size, timestamps, 7TV paints, landscape',
+              category(Icons.chat_bubble_outline_rounded, 'Chat', 'Filters, text size, timestamps, 7TV paints',
                   () => _open('Chat', _chat)),
               category(Icons.notifications_active_outlined, 'Live alerts',
                   _settings.alertsServer.isEmpty

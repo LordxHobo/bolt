@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import '../core/models.dart';
 import '../core/services.dart';
 import '../kick/kick_chat.dart';
+import '../kick/kick_web.dart';
+import '../twitch/twitch_api.dart';
 import '../twitch/twitch_chat.dart';
 import 'badges.dart';
 import 'chat_models.dart';
@@ -40,6 +42,16 @@ class ChatController extends ChangeNotifier {
   String? statusText;
 
   Map<String, Emote> _emotes = {};
+
+  /// For the emote picker: 7TV channel and global emotes, and (loaded when
+  /// the picker first opens) the Twitch/Kick emotes you can use.
+  Map<String, Emote> sevenTvChannel = const {};
+  Map<String, Emote> sevenTvGlobal = const {};
+  List<(String, List<Emote>)> platformEmotes = const [];
+  Future<void>? _platformEmotesLoad;
+
+  /// Kick only takes its own emotes as [emote:id:name]; name → id.
+  final Map<String, String> _kickEmoteIds = {};
   ChatClient? _client;
   StreamSubscription<ChatEvent>? _sub;
   bool _disposed = false;
@@ -74,6 +86,8 @@ class ChatController extends ChangeNotifier {
     if (_disposed || _emoteUserId != id) return;
     // Channel emotes win over global ones with the same name.
     _emotes = {...results[0], ...results[1]};
+    sevenTvGlobal = results[0];
+    sevenTvChannel = results[1];
     // Re-render messages that arrived before the emotes did.
     for (var i = 0; i < messages.length; i++) {
       messages[i] = messages[i].copyWith(fragments: applyEmotes(messages[i].fragments, _emotes));
@@ -209,7 +223,101 @@ class ChatController extends ChangeNotifier {
   Future<void> send(String text, {ChatMessage? replyTo}) async {
     final client = _client;
     if (client == null) return;
-    await client.send(text, replyTo: replyTo);
+    var out = text;
+    if (channel.platform == StreamPlatform.kick && _kickEmoteIds.isNotEmpty) {
+      // Kick emotes picked by name go out the way kick.com sends them.
+      out = text.split(' ').map((w) {
+        final id = _kickEmoteIds[w];
+        return id == null ? w : '[emote:$id:$w]';
+      }).join(' ');
+    }
+    await client.send(out, replyTo: replyTo);
+  }
+
+  /// Every emote by name (for the picker's Recent row).
+  Emote? emoteNamed(String name) {
+    final e = _emotes[name];
+    if (e != null) return e;
+    for (final (_, list) in platformEmotes) {
+      for (final x in list) {
+        if (x.name == name) return x;
+      }
+    }
+    return null;
+  }
+
+  /// The Twitch/Kick emotes you can use here (once; for the picker).
+  Future<void> loadPlatformEmotes() => _platformEmotesLoad ??= () async {
+        try {
+          platformEmotes = channel.platform == StreamPlatform.twitch
+              ? await _twitchUserEmotes()
+              : await _kickEmotes();
+        } catch (e) {
+          debugPrint('Platform emotes failed: $e');
+          _platformEmotesLoad = null;
+        }
+        if (!_disposed) notifyListeners();
+      }();
+
+  Future<List<(String, List<Emote>)>> _twitchUserEmotes() async {
+    final token = await Services.twitch.validAccessToken();
+    if (token == null) return const [];
+    final data = await TwitchGql.query(
+      'query { currentUser { emoteSets { id owner { displayName } emotes { id token } } } }',
+      const {},
+      token,
+    );
+    final groups = <String, List<Emote>>{};
+    for (final set in jList(jMap(data['currentUser'])?['emoteSets'])) {
+      final m = jMap(set);
+      final owner = jStr(jMap(m?['owner'])?['displayName']) ?? 'Twitch';
+      final list = groups.putIfAbsent(owner, () => []);
+      for (final e in jList(m?['emotes'])) {
+        final em = jMap(e);
+        final id = jStr(em?['id']);
+        final token = jStr(em?['token']);
+        // Old text smileys like :) have regex names; skip those.
+        if (id == null || token == null || token.contains('\\')) continue;
+        list.add(Emote(
+          name: token,
+          url: 'https://static-cdn.jtvnw.net/emoticons/v2/$id/default/dark/2.0',
+          source: EmoteSource.twitch,
+        ));
+      }
+    }
+    // The channel's own emotes first, then the rest by name.
+    final keys = groups.keys.toList()
+      ..sort((a, b) {
+        final ca = a.toLowerCase() == channel.displayName.toLowerCase() ? 0 : 1;
+        final cb = b.toLowerCase() == channel.displayName.toLowerCase() ? 0 : 1;
+        return ca != cb ? ca - cb : a.toLowerCase().compareTo(b.toLowerCase());
+      });
+    return [
+      for (final k in keys)
+        if (groups[k]!.isNotEmpty) ('Twitch · $k', groups[k]!),
+    ];
+  }
+
+  Future<List<(String, List<Emote>)>> _kickEmotes() async {
+    final res = await KickWeb.instance.get('https://kick.com/emotes/${Uri.encodeComponent(channel.login)}');
+    if (!res.ok) return const [];
+    final out = <(String, List<Emote>)>[];
+    for (final g in jList(res.json)) {
+      final m = jMap(g);
+      if (m == null) continue;
+      final title = jStr(jMap(m['user'])?['username']) ?? jStr(m['name']) ?? jStr(m['slug']) ?? 'Kick';
+      final list = <Emote>[];
+      for (final e in jList(m['emotes'])) {
+        final em = jMap(e);
+        final id = jStr(em?['id']) ?? jInt(em?['id'])?.toString();
+        final name = jStr(em?['name']);
+        if (id == null || name == null) continue;
+        _kickEmoteIds[name] = id;
+        list.add(Emote(name: name, url: 'https://files.kick.com/emotes/$id/fullsize', source: EmoteSource.kick));
+      }
+      if (list.isNotEmpty) out.add(('Kick · $title', list));
+    }
+    return out;
   }
 
   ChatMessage? byId(String id) {

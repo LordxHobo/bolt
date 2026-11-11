@@ -6,11 +6,13 @@ import 'package:flutter/services.dart';
 
 import '../chat/badges.dart';
 import '../chat/chat_controller.dart';
+import '../chat/chat_filters.dart';
 import '../chat/chat_models.dart';
 import '../chat/seventv_cosmetics.dart';
 import '../core/models.dart';
 import '../core/services.dart';
 import '../kick/kick_follows.dart';
+import 'emote_picker.dart';
 import 'settings_screen.dart';
 import 'thread_sheet.dart';
 import 'user_card.dart';
@@ -82,6 +84,18 @@ class _ChatViewState extends State<ChatView> {
     if (next.length != _suggestions.length || !next.every(_suggestions.contains)) {
       setState(() => _suggestions = next);
     }
+  }
+
+  /// Puts an emote where the cursor is (spaces around it as needed).
+  void _insertEmote(String name) {
+    final text = _input.text;
+    var at = _input.selection.isValid ? _input.selection.baseOffset : text.length;
+    if (at < 0 || at > text.length) at = text.length;
+    final before = text.substring(0, at);
+    final after = text.substring(at);
+    final insert = '${before.isEmpty || before.endsWith(' ') ? '' : ' '}$name ';
+    _input.text = '$before$insert$after';
+    _input.selection = TextSelection.collapsed(offset: before.length + insert.length);
   }
 
   /// Puts `@name ` in your message (from a chatter's profile).
@@ -182,6 +196,12 @@ class _ChatViewState extends State<ChatView> {
         final c = widget.controller;
         final scale = Services.settings.chatTextScale;
         final showTime = Services.settings.showTimestamps;
+        // Your filters (muted people/words, bots) only hide messages here.
+        final settings = Services.settings;
+        final filtering = settings.hideBots || settings.mutedUsers.isNotEmpty || settings.mutedWords.isNotEmpty;
+        final shown = filtering
+            ? [for (final m in c.messages) if (!ChatFilters.hidden(m, settings)) m]
+            : c.messages;
         return Column(
           children: [
             if (c.status != ChatConnection.connected) _StatusBar(controller: c),
@@ -194,21 +214,22 @@ class _ChatViewState extends State<ChatView> {
                     // Scrolling the chat puts the keyboard away.
                     keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                     padding: const EdgeInsets.symmetric(vertical: 6),
-                    itemCount: c.messages.length,
+                    itemCount: shown.length,
                     itemBuilder: (context, i) => ChatLine(
-                      message: c.messages[i],
+                      message: shown[i],
                       badges: c.badges,
-                      onTap: c.messages[i].authorLogin.isEmpty
+                      onTap: shown[i].authorLogin.isEmpty
                           ? null
                           : () => showUserCard(context,
-                              controller: c, message: c.messages[i], onMention: _mention),
-                      onLongPress: c.messages[i].authorLogin.isEmpty
+                              controller: c, message: shown[i], onMention: _mention),
+                      onLongPress: shown[i].authorLogin.isEmpty
                           ? null
-                          : () => _messageActions(c, c.messages[i]),
-                      onThread: c.messages[i].reply == null
+                          : () => _messageActions(c, shown[i]),
+                      onThread: shown[i].reply == null
                           ? null
-                          : () => _openThread(c, c.threadOf(c.messages[i])),
+                          : () => _openThread(c, c.threadOf(shown[i])),
                       myNames: _myNames,
+                      highlight: ChatFilters.highlighted(shown[i], settings),
                       scale: scale,
                       showTimestamp: showTime,
                     ),
@@ -281,6 +302,12 @@ class _ChatViewState extends State<ChatView> {
               title: const Text('Copy message'),
               onTap: () => Navigator.pop(context, 'copy'),
             ),
+            ListTile(
+              leading: const Icon(Icons.visibility_off_outlined),
+              title: Text('Hide messages from ${m.author}'),
+              subtitle: const Text('Only for you. Undo in Settings → Chat → Filters'),
+              onTap: () => Navigator.pop(context, 'mute'),
+            ),
           ],
         ),
       ),
@@ -293,6 +320,12 @@ class _ChatViewState extends State<ChatView> {
         _openThread(c, c.threadOf(m));
       case 'profile':
         await showUserCard(context, controller: c, message: m, onMention: _mention);
+      case 'mute':
+        final s = Services.settings;
+        await s.setFilterList('mutedUsers', [...s.mutedUsers, m.authorLogin]);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${m.author} hidden')));
+        }
       case 'copy':
         await Clipboard.setData(ClipboardData(text: m.plainText));
         if (mounted) {
@@ -406,6 +439,14 @@ class _ChatViewState extends State<ChatView> {
           padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
           child: Row(
             children: [
+              TextFieldTapRegion(
+                child: IconButton(
+                  tooltip: 'Emotes',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.emoji_emotions_outlined),
+                  onPressed: () => showEmotePicker(context, controller: c, onPick: _insertEmote),
+                ),
+              ),
               Expanded(
                 child: TextField(
                   controller: _input,
@@ -481,7 +522,11 @@ class ChatLine extends StatelessWidget {
     this.onTap,
     this.onLongPress,
     this.onThread,
+    this.highlight = false,
   });
+
+  /// Has one of your highlight words (Settings → Chat → Filters).
+  final bool highlight;
 
   final ChatMessage message;
 
@@ -663,20 +708,22 @@ class ChatLine extends StatelessWidget {
     }
 
     final mention = mentionsMe;
+    // Mentions red (like Twitch and Kick), your highlight words amber.
+    final barColor = mention
+        ? const Color(0xFFE91916)
+        : highlight
+            ? const Color(0xFFF5A524)
+            : null;
     final line = Container(
-      // Messages that mention you: tinted, with a bar on the left, like
-      // Twitch and Kick do.
       decoration: BoxDecoration(
-        color: mention
-            ? const Color(0xFFE91916).withValues(alpha: 0.18)
+        color: barColor != null
+            ? barColor.withValues(alpha: 0.18)
             : message.systemText != null
                 ? Colors.white.withValues(alpha: 0.05)
                 : null,
-        border: mention
-            ? const Border(left: BorderSide(color: Color(0xFFE91916), width: 3))
-            : null,
+        border: barColor != null ? Border(left: BorderSide(color: barColor, width: 3)) : null,
       ),
-      padding: EdgeInsets.fromLTRB(mention ? 9 : 12, 2, 12, 2),
+      padding: EdgeInsets.fromLTRB(barColor != null ? 9 : 12, 2, 12, 2),
       child: Opacity(
         opacity: message.isHistory ? 0.7 : 1,
         child: Column(

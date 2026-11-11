@@ -28,8 +28,9 @@ class TwitchGql {
   }
 
   /// Any site-API query (used for badges and chatter profiles).
-  static Future<Map<String, dynamic>> query(String query, [Map<String, dynamic> variables = const {}]) =>
-      _query(query, variables);
+  static Future<Map<String, dynamic>> query(String query,
+          [Map<String, dynamic> variables = const {}, String? token]) =>
+      _query(query, variables, token: token);
 
   static const _userFields = '''
     id

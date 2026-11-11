@@ -113,6 +113,15 @@ class Settings extends ChangeNotifier {
   double chatTextScale = 1.0;
   bool showTimestamps = false;
 
+  /// Emote picker: most recent first.
+  List<String> recentEmotes = [];
+
+  /// Chat filters (all only on your phone).
+  bool hideBots = false;
+  List<String> mutedWords = [];
+  List<String> mutedUsers = [];
+  List<String> highlightWords = [];
+
   /// Chat: draw 7TV name paints.
   bool showPaints = true;
 
@@ -174,6 +183,11 @@ class Settings extends ChangeNotifier {
         orElse: () => HomeView.following);
     chatTextScale = _prefs.getDouble('chatTextScale') ?? 1.0;
     showTimestamps = _prefs.getBool('showTimestamps') ?? false;
+    recentEmotes = _prefs.getStringList('recentEmotes') ?? [];
+    hideBots = _prefs.getBool('hideBots') ?? false;
+    mutedWords = _prefs.getStringList('mutedWords') ?? [];
+    mutedUsers = _prefs.getStringList('mutedUsers') ?? [];
+    highlightWords = _prefs.getStringList('highlightWords') ?? [];
     showPaints = _prefs.getBool('showPaints') ?? true;
     homeTiles = _prefs.getBool('homeTiles') ?? false;
     previewNotes = _prefs.getBool('previewNotes') ?? false;
@@ -316,6 +330,39 @@ class Settings extends ChangeNotifier {
   Future<void> setShowPaints(bool v) async {
     showPaints = v;
     await _prefs.setBool('showPaints', v);
+    notifyListeners();
+  }
+
+  Future<void> useEmote(String name) async {
+    recentEmotes = [name, ...recentEmotes.where((e) => e != name)].take(30).toList();
+    await _prefs.setStringList('recentEmotes', recentEmotes);
+    notifyListeners();
+  }
+
+  Future<void> setHideBots(bool v) async {
+    hideBots = v;
+    await _prefs.setBool('hideBots', v);
+    notifyListeners();
+  }
+
+  /// Saves one of the filter lists ('mutedWords', 'mutedUsers',
+  /// 'highlightWords').
+  Future<void> setFilterList(String key, List<String> values) async {
+    final clean = [
+      for (final v in values)
+        if (v.trim().isNotEmpty) v.trim(),
+    ];
+    switch (key) {
+      case 'mutedWords':
+        mutedWords = clean;
+      case 'mutedUsers':
+        mutedUsers = [for (final u in clean) u.toLowerCase().replaceFirst('@', '')];
+      case 'highlightWords':
+        highlightWords = clean;
+      default:
+        return;
+    }
+    await _prefs.setStringList(key, key == 'mutedUsers' ? mutedUsers : clean);
     notifyListeners();
   }
 
