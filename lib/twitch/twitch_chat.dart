@@ -9,6 +9,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../chat/chat_models.dart';
 import '../core/models.dart';
 import '../core/net.dart';
+import '../core/services.dart';
 
 class IrcMessage {
   final Map<String, String> tags;
@@ -381,6 +382,8 @@ class TwitchChatClient implements ChatClient {
       author: _myDisplayName ?? login!,
       authorLogin: login!,
       authorColor: _myColor,
+      // Your account id, so your own messages get your 7TV badge and paint.
+      authorId: Services.twitch.userId,
       roles: _myRoles,
       badges: _myBadges,
       reply: replyTo == null

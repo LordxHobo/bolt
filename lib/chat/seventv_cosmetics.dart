@@ -368,4 +368,3 @@ class _ImagePaintedNameState extends State<_ImagePaintedName> {
     );
   }
 }
-
