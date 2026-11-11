@@ -116,6 +116,7 @@ class TwitchChatClient implements ChatClient {
   String? _myDisplayName;
   Color? _myColor;
   Set<String> _myRoles = {};
+  List<ChatBadge> _myBadges = const [];
 
   @override
   Stream<ChatEvent> get events => _events.stream;
@@ -200,6 +201,7 @@ class TwitchChatClient implements ChatClient {
           _myDisplayName = msg.tags['display-name'];
           _myColor = parseHexColor(msg.tags['color']);
           _myRoles = _roles(msg.tags['badges']);
+          _myBadges = _badges(msg.tags['badges'], msg.tags['badge-info']);
         case 'PRIVMSG':
         case 'USERNOTICE':
           final chat = _toChatMessage(msg);
@@ -233,6 +235,26 @@ class TwitchChatClient implements ChatClient {
         systemText: text,
       );
 
+  /// `badges=subscriber/3012,premium/1` (+ `badge-info=subscriber/14` for
+  /// the exact months).
+  static List<ChatBadge> _badges(String? badges, String? info) {
+    if (badges == null || badges.isEmpty) return const [];
+    final months = <String, int>{};
+    for (final i in (info ?? '').split(',')) {
+      final slash = i.indexOf('/');
+      if (slash > 0) {
+        final n = int.tryParse(i.substring(slash + 1));
+        if (n != null) months[i.substring(0, slash)] = n;
+      }
+    }
+    return [
+      for (final b in badges.split(','))
+        if (b.contains('/'))
+          ChatBadge(b.substring(0, b.indexOf('/')), b.substring(b.indexOf('/') + 1), null,
+              months[b.substring(0, b.indexOf('/'))]),
+    ];
+  }
+
   static Set<String> _roles(String? badges) {
     if (badges == null || badges.isEmpty) return {};
     return badges.split(',').map((b) => b.split('/').first).toSet();
@@ -256,6 +278,8 @@ class TwitchChatClient implements ChatClient {
       authorLogin: login,
       authorColor: parseHexColor(tags['color']),
       roles: _roles(tags['badges']),
+      badges: _badges(tags['badges'], tags['badge-info']),
+      authorId: tags['user-id'],
       fragments: text.isEmpty ? const [] : _fragments(text, tags['emotes']),
       timestamp: timestamp,
       isAction: isAction,
@@ -327,6 +351,7 @@ class TwitchChatClient implements ChatClient {
       authorLogin: login!,
       authorColor: _myColor,
       roles: _myRoles,
+      badges: _myBadges,
       fragments: [TextFragment(body)],
       timestamp: DateTime.now(),
       isAction: isAction,

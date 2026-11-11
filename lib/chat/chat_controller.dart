@@ -6,6 +6,7 @@ import '../core/models.dart';
 import '../core/services.dart';
 import '../kick/kick_chat.dart';
 import '../twitch/twitch_chat.dart';
+import 'badges.dart';
 import 'chat_models.dart';
 import 'seventv.dart';
 
@@ -14,6 +15,13 @@ class ChatController extends ChangeNotifier {
   ChatController(this.channel);
 
   final ChannelInfo channel;
+
+  /// Badge pictures for this channel (redraws chat once they're in).
+  late final ChatBadges badges = ChatBadges(channel)..addListener(_badgesLoaded);
+
+  void _badgesLoaded() {
+    if (!_disposed) notifyListeners();
+  }
 
   static const maxMessages = 400;
 
@@ -41,6 +49,7 @@ class ChatController extends ChangeNotifier {
 
   Future<void> start() async {
     unawaited(_loadEmotes());
+    unawaited(badges.load());
     await _connect();
   }
 
@@ -194,6 +203,7 @@ class ChatController extends ChangeNotifier {
 
   @override
   void dispose() {
+    badges.removeListener(_badgesLoaded);
     _disposed = true;
     _sub?.cancel();
     _client?.dispose();

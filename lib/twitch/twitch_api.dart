@@ -27,6 +27,10 @@ class TwitchGql {
     return data;
   }
 
+  /// Any site-API query (used for badges and chatter profiles).
+  static Future<Map<String, dynamic>> query(String query, [Map<String, dynamic> variables = const {}]) =>
+      _query(query, variables);
+
   static const _userFields = '''
     id
     login

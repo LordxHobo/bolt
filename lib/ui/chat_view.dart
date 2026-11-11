@@ -3,12 +3,14 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../chat/badges.dart';
 import '../chat/chat_controller.dart';
 import '../chat/chat_models.dart';
 import '../core/models.dart';
 import '../core/services.dart';
 import '../kick/kick_follows.dart';
 import 'settings_screen.dart';
+import 'user_card.dart';
 import 'widgets.dart';
 
 class ChatView extends StatefulWidget {
@@ -74,6 +76,15 @@ class _ChatViewState extends State<ChatView> {
     if (next.length != _suggestions.length || !next.every(_suggestions.contains)) {
       setState(() => _suggestions = next);
     }
+  }
+
+  /// Puts `@name ` in your message (from a chatter's profile).
+  void _mention(String name) {
+    final text = _input.text;
+    final add = '@$name ';
+    _input.text = text.isEmpty || text.endsWith(' ') ? '$text$add' : '$text $add';
+    _input.selection = TextSelection.collapsed(offset: _input.text.length);
+    _focus.requestFocus();
   }
 
   /// Your names on Twitch and Kick (lowercase), to highlight messages that
@@ -179,6 +190,11 @@ class _ChatViewState extends State<ChatView> {
                     itemCount: c.messages.length,
                     itemBuilder: (context, i) => ChatLine(
                       message: c.messages[i],
+                      badges: c.badges,
+                      onTap: c.messages[i].authorLogin.isEmpty
+                          ? null
+                          : () => showUserCard(context,
+                              controller: c, message: c.messages[i], onMention: _mention),
                       myNames: _myNames,
                       scale: scale,
                       showTimestamp: showTime,
@@ -340,9 +356,17 @@ class ChatLine extends StatelessWidget {
     this.scale = 1,
     this.showTimestamp = false,
     this.myNames = const {},
+    this.badges,
+    this.onTap,
   });
 
   final ChatMessage message;
+
+  /// Badge pictures for this channel.
+  final ChatBadges? badges;
+
+  /// Tapping the message (opens the chatter's profile).
+  final VoidCallback? onTap;
   final double scale;
   final bool showTimestamp;
 
@@ -373,7 +397,29 @@ class ChatLine extends StatelessWidget {
     'staff': (Icons.build_rounded, Color(0xFFFFFFFF)),
     'verified': (Icons.verified_rounded, Color(0xFF53FC18)),
     'partner': (Icons.verified_rounded, Color(0xFF9146FF)),
+    'sub_gifter': (Icons.card_giftcard_rounded, Color(0xFF53FC18)),
+    'bot': (Icons.smart_toy_rounded, Color(0xFF9E9E9E)),
   };
+
+  /// One badge: the platform's picture when there is one, else Bolt's icon.
+  static Widget? badgeWidget(ChatBadge b, ChatBadges? store, double size) {
+    final look = store?.lookFor(b);
+    final url = look?.imageUrl;
+    if (url != null) {
+      return CachedNetworkImage(
+        imageUrl: url,
+        width: size,
+        height: size,
+        fit: BoxFit.contain,
+        fadeInDuration: Duration.zero,
+        placeholder: (_, __) => SizedBox(width: size, height: size),
+        errorWidget: (_, __, ___) => SizedBox(width: size, height: size),
+      );
+    }
+    final icon = _roleIcons[b.set];
+    if (icon == null) return null;
+    return Icon(icon.$1, size: size, color: icon.$2);
+  }
 
   /// Raises the lightness of dark name colors so they read on a dark background.
   static Color readable(Color? c, Color fallback) {
@@ -409,16 +455,27 @@ class ChatLine extends StatelessWidget {
         style: base.copyWith(color: muted, fontSize: 12 * scale),
       ));
     }
-    for (final role in message.roles) {
-      final icon = _roleIcons[role];
-      if (icon == null) continue;
-      spans.add(WidgetSpan(
-        alignment: PlaceholderAlignment.middle,
-        child: Padding(
-          padding: const EdgeInsets.only(right: 3),
-          child: Icon(icon.$1, size: 15 * scale, color: icon.$2),
-        ),
-      ));
+    if (message.badges.isNotEmpty) {
+      for (final b in message.badges) {
+        final w = badgeWidget(b, badges, 18 * scale);
+        if (w == null) continue;
+        spans.add(WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Padding(padding: const EdgeInsets.only(right: 3), child: w),
+        ));
+      }
+    } else {
+      for (final role in message.roles) {
+        final icon = _roleIcons[role];
+        if (icon == null) continue;
+        spans.add(WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 3),
+            child: Icon(icon.$1, size: 15 * scale, color: icon.$2),
+          ),
+        ));
+      }
     }
     spans.add(TextSpan(
       text: message.author,
@@ -449,7 +506,7 @@ class ChatLine extends StatelessWidget {
     }
 
     final mention = mentionsMe;
-    return Container(
+    final line = Container(
       // Messages that mention you: tinted, with a bar on the left, like
       // Twitch and Kick do.
       decoration: BoxDecoration(
@@ -475,6 +532,8 @@ class ChatLine extends StatelessWidget {
         ),
       ),
     );
+    if (onTap == null) return line;
+    return GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: line);
   }
 }
 

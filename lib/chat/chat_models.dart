@@ -37,12 +37,31 @@ class EmoteFragment extends Fragment {
   EmoteFragment(this.emote, [List<Emote>? overlays]) : overlays = overlays ?? [];
 }
 
+/// A badge shown before a chatter's name: Twitch's `set/version` (e.g.
+/// `subscriber/3012`), or Kick's badge type (e.g. `moderator`).
+class ChatBadge {
+  final String set;
+  final String version;
+
+  /// Words for it from the platform, when sent (e.g. "Subscriber").
+  final String? title;
+
+  /// Months for subscriber badges, gift count for gifter badges.
+  final int? count;
+
+  const ChatBadge(this.set, [this.version = '', this.title, this.count]);
+}
+
 class ChatMessage {
   final String id;
   final String author;
   final String authorLogin;
   final Color? authorColor;
   final Set<String> roles;
+  final List<ChatBadge> badges;
+
+  /// The chatter's account id on the platform, when known.
+  final String? authorId;
   final List<Fragment> fragments;
   final DateTime timestamp;
   final bool isAction;
@@ -60,6 +79,8 @@ class ChatMessage {
     required this.timestamp,
     this.authorColor,
     this.roles = const {},
+    this.badges = const [],
+    this.authorId,
     this.isAction = false,
     this.systemText,
     this.isHistory = false,
@@ -73,6 +94,8 @@ class ChatMessage {
         timestamp: timestamp,
         authorColor: authorColor,
         roles: roles,
+        badges: badges,
+        authorId: authorId,
         isAction: isAction,
         systemText: systemText,
         isHistory: isHistory,

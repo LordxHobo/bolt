@@ -90,9 +90,13 @@ class KickApi {
     final sender = jMap(d['sender']) ?? const {};
     final identity = jMap(sender['identity']);
     final roles = <String>{};
+    final badges = <ChatBadge>[];
     for (final b in jList(identity?['badges'])) {
-      final type = jStr(jMap(b)?['type']);
-      if (type != null) roles.add(type);
+      final m = jMap(b);
+      final type = jStr(m?['type']);
+      if (type == null) continue;
+      roles.add(type);
+      badges.add(ChatBadge(type, '', jStr(m?['text']), jInt(m?['count'])));
     }
     final created = DateTime.tryParse(jStr(d['created_at']) ?? '')?.toLocal();
     final username = jStr(sender['username']) ?? 'unknown';
@@ -102,6 +106,8 @@ class KickApi {
       authorLogin: (jStr(sender['slug']) ?? username).toLowerCase(),
       authorColor: parseHexColor(jStr(identity?['color'])),
       roles: roles,
+      badges: badges,
+      authorId: jStr(sender['id']) ?? jInt(sender['id'])?.toString(),
       fragments: parseKickContent(content),
       timestamp: created ?? DateTime.now(),
       isHistory: history,
