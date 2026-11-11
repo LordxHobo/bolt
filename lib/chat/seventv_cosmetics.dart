@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -20,10 +21,13 @@ class SevenTvPaint {
   final String name;
   final Gradient? gradient;
   final Color? color;
-  final List<Shadow> shadows;
-  const SevenTvPaint(this.name, {this.gradient, this.color, this.shadows = const []});
 
-  bool get drawable => gradient != null || color != null;
+  /// A (usually animated) picture the letters are cut out of.
+  final String? imageUrl;
+  final List<Shadow> shadows;
+  const SevenTvPaint(this.name, {this.gradient, this.color, this.imageUrl, this.shadows = const []});
+
+  bool get drawable => gradient != null || color != null || imageUrl != null;
 }
 
 /// 7TV badges and name paints ("cosmetics") that chatters picked on 7TV.
@@ -84,6 +88,7 @@ class SevenTvCosmetics extends ChangeNotifier {
             '... on PaintLayerTypeSingleColor { color { hex } } '
             '... on PaintLayerTypeLinearGradient { angle repeating stops { at color { hex } } } '
             '... on PaintLayerTypeRadialGradient { repeating shape stops { at color { hex } } } '
+            '... on PaintLayerTypeImage { images { url mime scale frameCount } } '
             '} } shadows { color { hex } offsetX offsetY blur } } } } '
             'badges { badges { id name description images { url mime scale } } } }',
           );
@@ -169,6 +174,7 @@ class SevenTvCosmetics extends ChangeNotifier {
     final data = jMap(m['data']);
     Gradient? gradient;
     Color? color;
+    String? imageUrl;
     for (final l in jList(data?['layers'])) {
       final ty = jMap(jMap(l)?['ty']);
       if (ty == null) continue;
@@ -189,8 +195,9 @@ class SevenTvCosmetics extends ChangeNotifier {
           );
         case 'PaintLayerTypeSingleColor':
           color ??= _color(ty['color']);
+        case 'PaintLayerTypeImage':
+          imageUrl ??= _paintImageUrl(ty);
       }
-      if (gradient != null) break; // the first gradient layer is the look
     }
     final shadows = [
       for (final s in jList(data?['shadows']))
@@ -202,7 +209,28 @@ class SevenTvCosmetics extends ChangeNotifier {
               blurRadius: (jNum(sh['blur']) ?? 0).toDouble(),
             ),
     ];
-    return SevenTvPaint(name, gradient: gradient, color: color, shadows: shadows);
+    return SevenTvPaint(name, gradient: gradient, color: color, imageUrl: imageUrl, shadows: shadows);
+  }
+
+  /// The paint's picture in a format iOS can play (animated WebP or GIF,
+  /// not AVIF), preferring the animated, 1x version.
+  static String? _paintImageUrl(Map<String, dynamic> ty) {
+    final images = [for (final i in jList(ty['images'])) if (jMap(i) case final x?) x];
+    int rank(Map<String, dynamic> i) {
+      final mime = jStr(i['mime']) ?? '';
+      var r = 0;
+      if (mime.contains('avif')) r += 100;
+      if (!(mime.contains('webp') || mime.contains('gif'))) r += 10;
+      if ((jInt(i['frameCount']) ?? 1) <= 1) r += 5;
+      r += ((jInt(i['scale']) ?? 1) - 1).abs();
+      return r;
+    }
+
+    images.sort((a, b) => rank(a).compareTo(rank(b)));
+    for (final i in images) {
+      if (!(jStr(i['mime']) ?? '').contains('avif')) return jStr(i['url']);
+    }
+    return null;
   }
 
   /// CSS-style angle (0 = upwards, 90 = to the right).
@@ -232,6 +260,9 @@ class PaintedName extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (paint.imageUrl != null) {
+      return _ImagePaintedName(text: text, paint: paint, style: style);
+    }
     final letters = paint.gradient == null
         ? Text(text, style: style.copyWith(color: paint.color))
         : ShaderMask(
@@ -249,3 +280,88 @@ class PaintedName extends StatelessWidget {
     );
   }
 }
+
+/// A name cut out of the paint's picture, following its animation.
+class _ImagePaintedName extends StatefulWidget {
+  const _ImagePaintedName({required this.text, required this.paint, required this.style});
+
+  final String text;
+  final SevenTvPaint paint;
+  final TextStyle style;
+
+  @override
+  State<_ImagePaintedName> createState() => _ImagePaintedNameState();
+}
+
+class _ImagePaintedNameState extends State<_ImagePaintedName> {
+  ImageStream? _stream;
+  late final _listener = ImageStreamListener(_onFrame, onError: (_, __) {});
+  ui.Image? _frame;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(_ImagePaintedName old) {
+    super.didUpdateWidget(old);
+    if (old.paint.imageUrl != widget.paint.imageUrl) _resolve();
+  }
+
+  void _resolve() {
+    final stream = NetworkImage(widget.paint.imageUrl!).resolve(createLocalImageConfiguration(context));
+    if (stream.key == _stream?.key) return;
+    _stream?.removeListener(_listener);
+    _stream = stream..addListener(_listener);
+  }
+
+  void _onFrame(ImageInfo info, bool _) {
+    if (!mounted) return;
+    setState(() => _frame = info.image);
+  }
+
+  @override
+  void dispose() {
+    _stream?.removeListener(_listener);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final frame = _frame;
+    final style = widget.style;
+    Widget letters;
+    if (frame == null) {
+      // Until the picture is in: the paint's colors, or the normal name.
+      letters = widget.paint.gradient != null || widget.paint.color != null
+          ? PaintedName(
+              text: widget.text,
+              paint: SevenTvPaint(widget.paint.name, gradient: widget.paint.gradient, color: widget.paint.color),
+              style: style,
+            )
+          : Text(widget.text, style: style);
+    } else {
+      // The picture fills the height of the line and repeats sideways.
+      final lineHeight = (style.fontSize ?? 14) * (style.height ?? 1.3);
+      final scale = lineHeight / frame.height;
+      final matrix = Matrix4.diagonal3Values(scale, scale, 1).storage;
+      letters = Text(
+        widget.text,
+        // (copyWith drops the plain color when a foreground is given.)
+        style: style.copyWith(
+          foreground: Paint()..shader = ImageShader(frame, TileMode.repeated, TileMode.repeated, matrix),
+        ),
+      );
+    }
+    if (widget.paint.shadows.isEmpty) return letters;
+    return Stack(
+      children: [
+        Text(widget.text, style: style.copyWith(color: Colors.transparent, shadows: widget.paint.shadows)),
+        letters,
+      ],
+    );
+  }
+}
+
