@@ -12,6 +12,7 @@ import '../core/models.dart';
 import '../core/services.dart';
 import '../kick/kick_api.dart';
 import '../twitch/twitch_api.dart';
+import '../twitch/twitch_watch.dart';
 import 'chat_view.dart';
 import 'home_screen.dart';
 import '../core/settings.dart';
@@ -87,10 +88,20 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
   ChannelRef get ref => widget.channel;
 
+  /// Twitch watch-time reports (Bolt's player only; Twitch's own web player
+  /// reports by itself).
+  TwitchWatchReporter? _watch;
+
   @override
   void initState() {
     super.initState();
     _info = widget.initialInfo;
+    if (ref.platform == StreamPlatform.twitch) {
+      _watch = TwitchWatchReporter(
+        login: ref.login,
+        isPlaying: () => !_useWebPlayer && (_liveKey.currentState?.isWatching ?? false),
+      )..start();
+    }
     WakelockPlus.enable();
     _load();
     _infoTimer = Timer.periodic(const Duration(seconds: 60), (_) => _load(quiet: true));
@@ -98,6 +109,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
   @override
   void dispose() {
+    _watch?.stop();
     _infoTimer?.cancel();
     _chat?.dispose();
     WakelockPlus.disable();

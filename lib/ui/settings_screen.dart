@@ -5,6 +5,7 @@ import '../core/models.dart';
 import '../core/services.dart';
 import '../core/settings.dart';
 import '../twitch/adblock.dart';
+import '../twitch/twitch_watch.dart';
 import '../kick/kick_follows.dart';
 import 'chat_filters_screen.dart';
 import 'kick_web_login_screen.dart';
@@ -122,6 +123,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
     return [
+      SwitchListTile(
+        title: const Text('Count me as a viewer (Twitch)'),
+        subtitle: ValueListenableBuilder<String?>(
+          valueListenable: TwitchWatchReporter.status,
+          builder: (context, status, _) => Text(
+            'Reports your watch time like Twitch\'s own player, so you earn channel points, '
+            'watch streaks and Drops while watching in Bolt. Needs your Twitch sign-in.'
+            '${status == null ? '' : '\nLast: $status'}',
+          ),
+        ),
+        isThreeLine: true,
+        value: _settings.countAsViewer,
+        onChanged: (v) => _settings.setCountAsViewer(v),
+      ),
+      const Divider(height: 1),
       for (final mode in TwitchPlayerMode.values)
         ListTile(
           leading: Icon(

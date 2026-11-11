@@ -113,6 +113,9 @@ class Settings extends ChangeNotifier {
   double chatTextScale = 1.0;
   bool showTimestamps = false;
 
+  /// Twitch: report watch time like Twitch's player (points, Drops).
+  bool countAsViewer = true;
+
   /// Emote picker: most recent first.
   List<String> recentEmotes = [];
 
@@ -183,6 +186,7 @@ class Settings extends ChangeNotifier {
         orElse: () => HomeView.following);
     chatTextScale = _prefs.getDouble('chatTextScale') ?? 1.0;
     showTimestamps = _prefs.getBool('showTimestamps') ?? false;
+    countAsViewer = _prefs.getBool('countAsViewer') ?? true;
     recentEmotes = _prefs.getStringList('recentEmotes') ?? [];
     hideBots = _prefs.getBool('hideBots') ?? false;
     mutedWords = _prefs.getStringList('mutedWords') ?? [];
@@ -363,6 +367,12 @@ class Settings extends ChangeNotifier {
         return;
     }
     await _prefs.setStringList(key, key == 'mutedUsers' ? mutedUsers : clean);
+    notifyListeners();
+  }
+
+  Future<void> setCountAsViewer(bool v) async {
+    countAsViewer = v;
+    await _prefs.setBool('countAsViewer', v);
     notifyListeners();
   }
 

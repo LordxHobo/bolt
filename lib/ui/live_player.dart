@@ -59,6 +59,9 @@ class LivePlayer extends StatefulWidget {
 }
 
 class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
+  /// Whether the video is playing right now (for the watch-time reports).
+  bool get isWatching => _controller?.isPlaying ?? false;
+
   LiveProxy? _proxy;
   LiveVideo? _controller;
   Timer? _orientationReset;
