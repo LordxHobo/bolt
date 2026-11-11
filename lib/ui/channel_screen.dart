@@ -19,6 +19,8 @@ import '../core/settings.dart';
 import '../player/sources.dart';
 import 'live_player.dart';
 import 'twitch_player.dart';
+import '../twitch/twitch_extensions.dart';
+import 'extensions_screen.dart';
 import 'videos_screen.dart';
 import 'widgets.dart';
 
@@ -111,6 +113,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
   @override
   void dispose() {
     _watch?.stop();
+    ExtensionKeeper.instance.stopChannel(ref.login);
     _infoTimer?.cancel();
     _chat?.dispose();
     WakelockPlus.disable();
@@ -178,6 +181,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
       builder: (_) => VideosScreen(info: _info ?? ChannelInfo.placeholder(ref)),
     ));
     if (mounted) _liveKey.currentState?.resumeAfterOther();
+  }
+
+  void _openExtensions() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ExtensionsScreen(info: _info ?? ChannelInfo.placeholder(ref)),
+    ));
   }
 
   Future<void> _openInBrowser() async {
@@ -346,6 +355,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
             onReload: _reloadPlayer,
             onOpenInBrowser: _openInBrowser,
             onVideos: _openVideos,
+            onExtensions: ref.platform == StreamPlatform.twitch ? _openExtensions : null,
             ivs: _ivs,
             onTogglePlayer: defaultTargetPlatform == TargetPlatform.iOS && !_useWebPlayer
                 ? _togglePlayerEngine
@@ -548,6 +558,7 @@ class _Header extends StatelessWidget {
     required this.onReload,
     required this.onOpenInBrowser,
     required this.onVideos,
+    this.onExtensions,
     this.ivs = false,
     this.onTogglePlayer,
   });
@@ -558,6 +569,7 @@ class _Header extends StatelessWidget {
   final VoidCallback onReload;
   final VoidCallback onOpenInBrowser;
   final VoidCallback onVideos;
+  final VoidCallback? onExtensions;
 
   /// iPhone: whether this channel plays with the IVS player, and the switch.
   final bool ivs;
@@ -636,11 +648,19 @@ class _Header extends StatelessWidget {
             onSelected: (v) {
               if (v == 'reload') onReload();
               if (v == 'videos') onVideos();
+              if (v == 'extensions') onExtensions?.call();
               if (v == 'browser') onOpenInBrowser();
               if (v == 'player') onTogglePlayer?.call();
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'videos', child: Text('Past broadcasts & clips')),
+              if (onExtensions != null)
+                PopupMenuItem(
+                  value: 'extensions',
+                  child: Text(ExtensionKeeper.instance.runningFor(channel.login) > 0
+                      ? 'Extensions (${ExtensionKeeper.instance.runningFor(channel.login)} running)'
+                      : 'Extensions'),
+                ),
               const PopupMenuItem(value: 'reload', child: Text('Reload player')),
               if (onTogglePlayer != null)
                 PopupMenuItem(
