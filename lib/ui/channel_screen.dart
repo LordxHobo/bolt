@@ -19,6 +19,7 @@ import '../core/settings.dart';
 import '../player/sources.dart';
 import 'live_player.dart';
 import 'twitch_player.dart';
+import 'videos_screen.dart';
 import 'widgets.dart';
 
 /// The route channels open in. It can close without the slide-out animation,
@@ -169,6 +170,14 @@ class _ChannelScreenState extends State<ChannelScreen> {
     } else {
       _liveKey.currentState?.reload();
     }
+  }
+
+  Future<void> _openVideos() async {
+    _liveKey.currentState?.pauseForOther();
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => VideosScreen(info: _info ?? ChannelInfo.placeholder(ref)),
+    ));
+    if (mounted) _liveKey.currentState?.resumeAfterOther();
   }
 
   Future<void> _openInBrowser() async {
@@ -336,6 +345,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
             onBack: () => Navigator.of(context).pop(),
             onReload: _reloadPlayer,
             onOpenInBrowser: _openInBrowser,
+            onVideos: _openVideos,
             ivs: _ivs,
             onTogglePlayer: defaultTargetPlatform == TargetPlatform.iOS && !_useWebPlayer
                 ? _togglePlayerEngine
@@ -537,6 +547,7 @@ class _Header extends StatelessWidget {
     required this.onBack,
     required this.onReload,
     required this.onOpenInBrowser,
+    required this.onVideos,
     this.ivs = false,
     this.onTogglePlayer,
   });
@@ -546,6 +557,7 @@ class _Header extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onReload;
   final VoidCallback onOpenInBrowser;
+  final VoidCallback onVideos;
 
   /// iPhone: whether this channel plays with the IVS player, and the switch.
   final bool ivs;
@@ -623,10 +635,12 @@ class _Header extends StatelessWidget {
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'reload') onReload();
+              if (v == 'videos') onVideos();
               if (v == 'browser') onOpenInBrowser();
               if (v == 'player') onTogglePlayer?.call();
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(value: 'videos', child: Text('Past broadcasts & clips')),
               const PopupMenuItem(value: 'reload', child: Text('Reload player')),
               if (onTogglePlayer != null)
                 PopupMenuItem(

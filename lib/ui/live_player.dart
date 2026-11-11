@@ -131,6 +131,24 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     }
   }
 
+  bool _pausedForOther = false;
+
+  /// Something else is playing (a past broadcast): pause the live video.
+  void pauseForOther() {
+    final c = _controller;
+    if (c == null || !c.isPlaying) return;
+    _pausedForOther = true;
+    _wantPlaying = false;
+    c.pause();
+  }
+
+  /// Back to live, at the live edge.
+  void resumeAfterOther() {
+    if (!_pausedForOther) return;
+    _pausedForOther = false;
+    reload();
+  }
+
   void _playPause() {
     final c = _controller;
     if (c == null) return;
