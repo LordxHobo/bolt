@@ -14,6 +14,7 @@ import '../kick/kick_follows.dart';
 import '../kick/kick_web.dart';
 import '../twitch/twitch_api.dart';
 import '../twitch/twitch_web.dart';
+import 'browse_screen.dart';
 import 'channel_screen.dart';
 import 'settings_screen.dart';
 import 'widgets.dart';
@@ -641,6 +642,13 @@ class _HomeScreenState extends State<HomeScreen>
                         style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
                   ),
                   IconButton(
+                    tooltip: 'Browse and search',
+                    icon: const Icon(Icons.search_rounded),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => BrowseScreen(onOpen: _open)),
+                    ),
+                  ),
+                  IconButton(
                     tooltip: 'Settings',
                     icon: const Icon(Icons.settings_outlined),
                     onPressed: () => Navigator.of(context).push(
@@ -922,7 +930,7 @@ class _LiveTiles extends StatelessWidget {
             for (final e in entries)
               SizedBox(
                 width: width,
-                child: _LiveTile(
+                child: LiveTile(
                   info: e.primary,
                   alsoOn: e.other?.platform,
                   isFavorite: e.isFavorite(settings),
@@ -938,8 +946,8 @@ class _LiveTiles extends StatelessWidget {
   }
 }
 
-class _LiveTile extends StatelessWidget {
-  const _LiveTile({
+class LiveTile extends StatelessWidget {
+  const LiveTile({
     required this.info,
     required this.alsoOn,
     required this.isFavorite,

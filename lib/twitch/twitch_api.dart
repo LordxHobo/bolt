@@ -154,6 +154,8 @@ class TwitchGql {
     return out;
   }
 
+  static ChannelInfo parseUser(Map<String, dynamic> u) => _parseUser(u);
+
   static ChannelInfo _parseUser(Map<String, dynamic> u) {
     final stream = jMap(u['stream']);
     return ChannelInfo(
