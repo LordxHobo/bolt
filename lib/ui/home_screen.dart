@@ -402,7 +402,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// Kick's follow list usually leaves out the stream preview, so for live
   /// channels it's looked up from the channel itself (kept 5 minutes).
-  final Map<String, ({String? url, DateTime at})> _kickPreviews = {};
+  final Map<String, ({String? url, DateTime? startedAt, DateTime at})> _kickPreviews = {};
 
   Future<List<ChannelInfo>> _withKickPreviews(List<ChannelInfo> list) async {
     final now = DateTime.now();
@@ -421,7 +421,8 @@ class _HomeScreenState extends State<HomeScreen>
         for (final slug in need.skip(i).take(4))
           () async {
             try {
-              _kickPreviews[slug] = (url: await KickApi.getLivePreview(slug), at: now);
+              final live = await KickApi.getLivePreview(slug);
+              _kickPreviews[slug] = (url: live.url, startedAt: live.startedAt, at: now);
             } catch (e) {
               debugPrint('Kick preview for $slug failed: $e');
             }
@@ -430,8 +431,11 @@ class _HomeScreenState extends State<HomeScreen>
     }
     return [
       for (final c in list)
-        if (c.isLive && _kickPreviews[c.login]?.url != null)
-          c.copyWith(thumbnailUrl: _kickPreviews[c.login]!.url)
+        if (c.isLive && _kickPreviews[c.login] != null)
+          c.copyWith(
+            thumbnailUrl: _kickPreviews[c.login]!.url,
+            startedAt: _kickPreviews[c.login]!.startedAt,
+          )
         else
           c,
     ];
@@ -1080,6 +1084,21 @@ class _LiveTile extends StatelessWidget {
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text('${formatViewers(info.viewers)} watching',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white)),
+                      ),
+                    ),
+                  // How long they've been live.
+                  if (info.startedAt != null)
+                    Positioned(
+                      right: 6,
+                      bottom: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(formatUptime(info.startedAt!),
                             style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white)),
                       ),
                     ),

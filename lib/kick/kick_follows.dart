@@ -198,6 +198,7 @@ class KickFollows {
           (categories.isEmpty ? null : jStr(jMap(categories.first)?['name'])),
       viewers: jInt(m['viewer_count']) ?? jInt(live?['viewer_count']) ?? jInt(live?['viewers']),
       thumbnailUrl: _thumbnail(live) ?? _thumbnail(m),
+      startedAt: jTime(live?['start_time']) ?? jTime(live?['created_at']) ?? jTime(m['start_time']),
       kickChannelId: jInt(channel['id']),
     );
   }

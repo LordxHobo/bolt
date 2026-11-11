@@ -39,6 +39,7 @@ class KickApi {
       title: jStr(live?['session_title']),
       category: categories.isEmpty ? null : jStr(jMap(categories.first)?['name']),
       viewers: jInt(live?['viewer_count']) ?? jInt(live?['viewers']),
+      startedAt: jTime(live?['start_time']) ?? jTime(live?['created_at']),
       thumbnailUrl: thumbUrl,
       kickChannelId: jInt(j['id']),
       kickChatroomId: jInt(jMap(j['chatroom'])?['id']),
@@ -48,19 +49,23 @@ class KickApi {
 
   /// The live stream's current preview picture (the one kick.com shows on
   /// its stream cards), or null when not live / not available.
-  static Future<String?> getLivePreview(String slug) async {
+  /// Also gives when the stream started (Kick's follow list doesn't).
+  static Future<({String? url, DateTime? startedAt})> getLivePreview(String slug) async {
     final res = await KickWeb.instance
         .get('https://kick.com/api/v2/channels/${Uri.encodeComponent(slug)}/livestream');
+    DateTime? started;
     if (res.ok) {
       final j = jMap(res.json);
       final data = jMap(j?['data']) ?? j;
+      started = jTime(data?['start_time']) ?? jTime(data?['created_at']);
       final t = data?['thumbnail'];
       final tm = jMap(t);
       final url = jStr(tm?['src']) ?? jStr(tm?['url']) ?? (t is String ? jStr(t) : null);
-      if (url != null && url.isNotEmpty) return url;
+      if (url != null && url.isNotEmpty) return (url: url, startedAt: started);
     }
     // Older shape: the channel's own details.
-    return (await getChannel(slug))?.thumbnailUrl;
+    final channel = await getChannel(slug);
+    return (url: channel?.thumbnailUrl, startedAt: started ?? channel?.startedAt);
   }
 
   /// Recent chat messages (oldest first).

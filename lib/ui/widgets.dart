@@ -175,6 +175,11 @@ class ChannelTile extends StatelessWidget {
                   const SizedBox(width: 5),
                   Text(formatViewers(info.viewers),
                       style: theme.textTheme.labelMedium),
+                  // How long they've been live (list view too).
+                  if (info.startedAt != null)
+                    Text(' · ${formatUptime(info.startedAt!)}',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
                 ],
               ),
             ],

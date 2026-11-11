@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/services.dart';
+import '../player/hls.dart';
 import '../player/live_proxy.dart';
 import '../player/live_video.dart';
 import '../player/sources.dart';
@@ -199,6 +201,10 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
         );
         _proxy = proxy;
         url = await proxy.start();
+        if (audioOnly) {
+          proxy.selectedVariant = _audioVariant(proxy.variants);
+          url = proxy.playUrl();
+        }
       } else {
         url = proxy.playUrl();
       }
@@ -229,6 +235,37 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     } finally {
       if (session == _session && mounted) setState(() => _starting = false);
     }
+  }
+
+  /// Audio-only mode: stays on for every stream until you turn it off (for
+  /// as long as Bolt is open).
+  static bool audioOnly = false;
+
+  /// The stream's audio-only version, or (Kick has none) its smallest one.
+  static int? _audioVariant(List<HlsVariant> variants) {
+    if (variants.isEmpty) return null;
+    for (var i = 0; i < variants.length; i++) {
+      final v = variants[i];
+      if (v.isAudioOnly || v.label.toLowerCase().contains('audio')) return i;
+    }
+    var smallest = 0;
+    for (var i = 1; i < variants.length; i++) {
+      if (variants[i].bandwidth < variants[smallest].bandwidth) smallest = i;
+    }
+    return smallest;
+  }
+
+  static bool _isAudio(HlsVariant v) => v.isAudioOnly || v.label.toLowerCase().contains('audio');
+
+  Future<void> _setAudioOnly(bool on) async {
+    final proxy = _proxy;
+    audioOnly = on;
+    if (proxy == null) {
+      setState(() {});
+      return;
+    }
+    proxy.selectedVariant = on ? _audioVariant(proxy.variants) : null;
+    await reload();
   }
 
   /// Restarts playback at the live edge (also used by "Reload player").
@@ -465,8 +502,10 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     final variants = proxy.variants;
     final current = proxy.selectedVariant;
     final best = LiveProxy.bestVariantIndex(variants);
-    final order = List.generate(variants.length, (i) => i)
-      ..sort((a, b) => variants[b].pixels != variants[a].pixels
+    final order = [
+      for (var i = 0; i < variants.length; i++)
+        if (!_isAudio(variants[i])) i,
+    ]..sort((a, b) => variants[b].pixels != variants[a].pixels
           ? variants[b].pixels.compareTo(variants[a].pixels)
           : (variants[b].frameRate ?? 0).compareTo(variants[a].frameRate ?? 0));
     final picked = await showModalBottomSheet<int>(
@@ -477,14 +516,22 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
           shrinkWrap: true,
           children: [
             ListTile(
+              leading: const Icon(Icons.headphones_rounded),
+              title: const Text('Audio only'),
+              subtitle: const Text('Sound without the picture: less data and battery'),
+              trailing: audioOnly ? const Icon(Icons.check_rounded) : null,
+              onTap: () => Navigator.pop(context, -2),
+            ),
+            const Divider(height: 1),
+            ListTile(
               title: Text('Best (${variants[best].label})'),
-              trailing: current == null ? const Icon(Icons.check_rounded) : null,
+              trailing: !audioOnly && current == null ? const Icon(Icons.check_rounded) : null,
               onTap: () => Navigator.pop(context, -1),
             ),
             for (final i in order)
               ListTile(
                 title: Text(variants[i].label),
-                trailing: current == i ? const Icon(Icons.check_rounded) : null,
+                trailing: !audioOnly && current == i ? const Icon(Icons.check_rounded) : null,
                 onTap: () => Navigator.pop(context, i),
               ),
           ],
@@ -492,6 +539,8 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       ),
     );
     if (picked == null) return;
+    if (picked == -2) return _setAudioOnly(true);
+    audioOnly = false;
     await _selectQuality(picked < 0 ? null : picked);
   }
 
@@ -519,6 +568,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
           fit: StackFit.expand,
           children: [
             c.buildView(),
+            if (audioOnly) _AudioOnlyCover(artworkUrl: widget.mediaArtwork, compact: widget.compact),
             if (c.isBuffering) const Center(child: CircularProgressIndicator()),
             if (proxy != null && !widget.compact)
               ValueListenableBuilder<AdState>(
@@ -549,7 +599,11 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
                   controller: c,
                   qualityLabel: proxy == null || proxy.variants.isEmpty
                       ? null
-                      : proxy.variants[proxy.playingVariant].label,
+                      : audioOnly
+                          ? 'Audio'
+                          : proxy.variants[proxy.playingVariant].label,
+                  audioOnly: audioOnly,
+                  onAudioOnly: () => _setAudioOnly(!audioOnly),
                   onQuality: _showQualityMenu,
                   onReload: reload,
                   fullscreen: MediaQuery.of(context).orientation == Orientation.landscape,
@@ -588,6 +642,54 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   }
 }
 
+/// Shown over the (empty) picture in audio-only mode.
+class _AudioOnlyCover extends StatelessWidget {
+  const _AudioOnlyCover({required this.artworkUrl, required this.compact});
+
+  final String? artworkUrl;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = compact ? 40.0 : 72.0;
+    return IgnorePointer(
+      child: ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ClipOval(
+                child: SizedBox(
+                  width: size,
+                  height: size,
+                  child: artworkUrl == null
+                      ? const ColoredBox(
+                          color: Color(0xFF2A2A2E),
+                          child: Icon(Icons.headphones_rounded, color: Colors.white70),
+                        )
+                      : CachedNetworkImage(imageUrl: artworkUrl!, fit: BoxFit.cover),
+                ),
+              ),
+              if (!compact) ...[
+                const SizedBox(height: 10),
+                const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.headphones_rounded, size: 16, color: Colors.white70),
+                    SizedBox(width: 6),
+                    Text('Audio only', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Chip extends StatelessWidget {
   const _Chip({required this.text, this.icon});
 
@@ -622,9 +724,13 @@ class _Controls extends StatelessWidget {
     required this.fullscreen,
     required this.onFullscreen,
     required this.onPlayPause,
+    required this.audioOnly,
+    required this.onAudioOnly,
     this.onPip,
   });
 
+  final bool audioOnly;
+  final VoidCallback onAudioOnly;
   final LiveVideo controller;
   final String? qualityLabel;
   final VoidCallback onQuality;
@@ -680,6 +786,12 @@ class _Controls extends StatelessWidget {
                     style: TextButton.styleFrom(foregroundColor: Colors.white),
                     child: Text(qualityLabel!, style: const TextStyle(fontSize: 12)),
                   ),
+                IconButton(
+                  color: Colors.white,
+                  tooltip: audioOnly ? 'Show video' : 'Audio only',
+                  icon: Icon(audioOnly ? Icons.videocam_rounded : Icons.headphones_rounded),
+                  onPressed: onAudioOnly,
+                ),
                 IconButton(
                   color: Colors.white,
                   tooltip: 'Jump to live',

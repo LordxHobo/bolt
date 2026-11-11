@@ -40,6 +40,7 @@ class TwitchGql {
       title
       viewersCount
       previewImageURL(width: 440, height: 248)
+      createdAt
       game { displayName }
     }
   ''';
@@ -123,7 +124,7 @@ class TwitchGql {
   static Future<List<ChannelInfo>> getTopStreams({int first = 30}) async {
     final data = await _query(
       'query(\$first: Int) { streams(first: \$first) { edges { node { '
-      'title viewersCount previewImageURL(width: 440, height: 248) '
+      'title viewersCount previewImageURL(width: 440, height: 248) createdAt '
       'game { displayName } '
       'broadcaster { id login displayName profileImageURL(width: 150) } '
       '} } } }',
@@ -146,6 +147,7 @@ class TwitchGql {
         category: jStr(jMap(node['game'])?['displayName']),
         viewers: jInt(node['viewersCount']),
         thumbnailUrl: jStr(node['previewImageURL']),
+        startedAt: jTime(node['createdAt']),
       ));
     }
     return out;
@@ -164,6 +166,7 @@ class TwitchGql {
       category: jStr(jMap(stream?['game'])?['displayName']),
       viewers: jInt(stream?['viewersCount']),
       thumbnailUrl: jStr(stream?['previewImageURL']),
+      startedAt: jTime(stream?['createdAt']),
     );
   }
 }

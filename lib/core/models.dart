@@ -79,6 +79,9 @@ class ChannelInfo {
   final int? viewers;
   final String? thumbnailUrl;
 
+  /// When the current stream started (for "live for 2h 14m").
+  final DateTime? startedAt;
+
   // Kick only.
   final int? kickChannelId;
   final int? kickChatroomId;
@@ -95,6 +98,7 @@ class ChannelInfo {
     this.category,
     this.viewers,
     this.thumbnailUrl,
+    this.startedAt,
     this.kickChannelId,
     this.kickChatroomId,
     this.playbackUrl,
@@ -109,6 +113,7 @@ class ChannelInfo {
     String? category,
     int? viewers,
     String? thumbnailUrl,
+    DateTime? startedAt,
   }) =>
       ChannelInfo(
         platform: platform,
@@ -121,6 +126,7 @@ class ChannelInfo {
         category: category ?? this.category,
         viewers: viewers ?? this.viewers,
         thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+        startedAt: startedAt ?? this.startedAt,
         kickChannelId: kickChannelId,
         kickChatroomId: kickChatroomId,
         playbackUrl: playbackUrl,
@@ -147,6 +153,23 @@ String? jStr(Object? v) {
   if (v == null) return null;
   if (v is String) return v.isEmpty ? null : v;
   return v.toString();
+}
+
+/// Parses a time from the APIs (ISO, or Kick's "2024-01-01 12:00:00" in UTC).
+DateTime? jTime(Object? v) {
+  final t = jStr(v);
+  if (t == null || t.isEmpty) return null;
+  var text = t.contains('T') ? t : t.replaceFirst(' ', 'T');
+  if (!RegExp(r'(Z|[+-]\d\d:?\d\d)$').hasMatch(text)) text = '${text}Z';
+  return DateTime.tryParse(text)?.toLocal();
+}
+
+/// "2h 14m" / "45m" since [start].
+String formatUptime(DateTime start) {
+  final d = DateTime.now().difference(start);
+  if (d.isNegative) return '0m';
+  final h = d.inHours, m = d.inMinutes % 60;
+  return h > 0 ? '${h}h ${m}m' : '${m}m';
 }
 
 num? jNum(Object? v) => v is num ? v : (v is String ? num.tryParse(v) : null);
