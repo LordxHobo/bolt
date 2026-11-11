@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../chat/badges.dart';
 import '../chat/chat_controller.dart';
@@ -10,6 +11,7 @@ import '../core/models.dart';
 import '../core/services.dart';
 import '../kick/kick_follows.dart';
 import 'settings_screen.dart';
+import 'thread_sheet.dart';
 import 'user_card.dart';
 import 'widgets.dart';
 
@@ -26,6 +28,9 @@ class ChatView extends StatefulWidget {
 class _ChatViewState extends State<ChatView> {
   final _scroll = ScrollController();
   final _input = TextEditingController();
+
+  /// The message you're replying to (shown above the input).
+  ChatMessage? _replyTo;
   final _focus = FocusNode();
   bool _sending = false;
   List<String> _suggestions = const [];
@@ -157,8 +162,9 @@ class _ChatViewState extends State<ChatView> {
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
     try {
-      await widget.controller.send(text);
+      await widget.controller.send(text, replyTo: _replyTo);
       _input.clear();
+      _replyTo = null;
       _jumpToLatest();
     } catch (e) {
       if (mounted) showError(context, e);
@@ -195,6 +201,12 @@ class _ChatViewState extends State<ChatView> {
                           ? null
                           : () => showUserCard(context,
                               controller: c, message: c.messages[i], onMention: _mention),
+                      onLongPress: c.messages[i].authorLogin.isEmpty
+                          ? null
+                          : () => _messageActions(c, c.messages[i]),
+                      onThread: c.messages[i].reply == null
+                          ? null
+                          : () => _openThread(c, c.threadOf(c.messages[i])),
                       myNames: _myNames,
                       scale: scale,
                       showTimestamp: showTime,
@@ -219,10 +231,118 @@ class _ChatViewState extends State<ChatView> {
               ),
             ),
             if (_suggestions.isNotEmpty) _suggestionBar(),
+            if (_replyTo != null && c.canSend) _replyBar(_replyTo!),
             _inputBar(c),
           ],
         );
       },
+    );
+  }
+
+  void _startReply(ChatMessage m) {
+    setState(() => _replyTo = m);
+    _focus.requestFocus();
+  }
+
+  /// Long-press on a message.
+  Future<void> _messageActions(ChatController c, ChatMessage m) async {
+    final inThread = m.reply != null || c.thread(m.id).length > 1;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: ChatLine(message: m, badges: c.badges),
+            ),
+            if (c.canSend)
+              ListTile(
+                leading: const Icon(Icons.reply_rounded),
+                title: const Text('Reply'),
+                onTap: () => Navigator.pop(context, 'reply'),
+              ),
+            if (inThread)
+              ListTile(
+                leading: const Icon(Icons.forum_outlined),
+                title: const Text('View thread'),
+                onTap: () => Navigator.pop(context, 'thread'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.person_outline_rounded),
+              title: Text('View ${m.author}'),
+              onTap: () => Navigator.pop(context, 'profile'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Copy message'),
+              onTap: () => Navigator.pop(context, 'copy'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    switch (action) {
+      case 'reply':
+        _startReply(m);
+      case 'thread':
+        _openThread(c, c.threadOf(m));
+      case 'profile':
+        await showUserCard(context, controller: c, message: m, onMention: _mention);
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: m.plainText));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
+        }
+    }
+  }
+
+  Future<void> _openThread(ChatController c, String rootId) async {
+    final replyTo = await showThread(context, controller: c, rootId: rootId);
+    if (replyTo != null && mounted) _startReply(replyTo);
+  }
+
+  Widget _replyBar(ChatMessage m) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    return TextFieldTapRegion(
+      child: Container(
+        color: theme.colorScheme.surfaceContainer,
+        padding: const EdgeInsets.fromLTRB(14, 6, 4, 0),
+        child: Row(
+          children: [
+            Icon(Icons.reply_rounded, size: 16, color: muted),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text.rich(
+                TextSpan(children: [
+                  TextSpan(text: 'Replying to ', style: TextStyle(color: muted)),
+                  TextSpan(
+                    text: '@${m.author}',
+                    style: TextStyle(
+                      color: ChatLine.readable(m.authorColor, theme.colorScheme.primary),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  TextSpan(text: ': ${m.plainText}', style: TextStyle(color: muted)),
+                ]),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Cancel reply',
+              icon: const Icon(Icons.close_rounded, size: 18),
+              onPressed: () => setState(() => _replyTo = null),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -358,6 +478,8 @@ class ChatLine extends StatelessWidget {
     this.myNames = const {},
     this.badges,
     this.onTap,
+    this.onLongPress,
+    this.onThread,
   });
 
   final ChatMessage message;
@@ -367,6 +489,12 @@ class ChatLine extends StatelessWidget {
 
   /// Tapping the message (opens the chatter's profile).
   final VoidCallback? onTap;
+
+  /// Long-pressing it (reply, thread, copy).
+  final VoidCallback? onLongPress;
+
+  /// Tapping the "replying to" line above it (opens the conversation).
+  final VoidCallback? onThread;
   final double scale;
   final bool showTimestamp;
 
@@ -527,13 +655,41 @@ class ChatLine extends StatelessWidget {
           children: [
             if (message.systemText != null)
               Text(message.systemText!, style: base.copyWith(color: muted, fontSize: 12 * scale)),
+            if (message.reply case final r?)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onThread,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 1),
+                  child: Row(
+                    children: [
+                      Icon(Icons.subdirectory_arrow_right_rounded, size: 13 * scale, color: muted),
+                      const SizedBox(width: 3),
+                      Expanded(
+                        child: Text(
+                          'Replying to @${r.parentName ?? r.parentLogin ?? '…'}'
+                          '${(r.parentBody ?? '').isEmpty ? '' : ': ${r.parentBody}'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: base.copyWith(color: muted, fontSize: 12 * scale),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             Text.rich(TextSpan(children: spans)),
           ],
         ),
       ),
     );
-    if (onTap == null) return line;
-    return GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: line);
+    if (onTap == null && onLongPress == null) return line;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: line,
+    );
   }
 }
 

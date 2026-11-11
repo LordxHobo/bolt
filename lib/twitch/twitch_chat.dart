@@ -272,6 +272,33 @@ class TwitchChatClient implements ChatClient {
       isAction = true;
     }
     final login = tags['login'] ?? msg.nick ?? '';
+    final parentId = tags['reply-parent-msg-id'];
+    final reply = (parentId == null || parentId.isEmpty)
+        ? null
+        : ChatReply(
+            parentId: parentId,
+            parentLogin: tags['reply-parent-user-login'],
+            parentName: tags['reply-parent-display-name'],
+            parentBody: tags['reply-parent-msg-body'],
+            parentUserId: tags['reply-parent-user-id'],
+            threadId: (tags['reply-thread-parent-msg-id']?.isNotEmpty ?? false)
+                ? tags['reply-thread-parent-msg-id']
+                : parentId,
+          );
+    var fragments = text.isEmpty ? const <Fragment>[] : _fragments(text, tags['emotes']);
+    // Twitch puts "@name " in front of replies; the reply line already says who.
+    if (reply != null && fragments.isNotEmpty && fragments.first is TextFragment) {
+      final first = (fragments.first as TextFragment).text;
+      for (final n in [reply.parentLogin, reply.parentName]) {
+        if (n == null || n.isEmpty) continue;
+        final prefix = '@$n ';
+        if (first.toLowerCase().startsWith(prefix.toLowerCase())) {
+          final rest = first.substring(prefix.length);
+          fragments = [if (rest.isNotEmpty) TextFragment(rest), ...fragments.skip(1)];
+          break;
+        }
+      }
+    }
     return ChatMessage(
       id: tags['id'] ?? 'tw-${timestamp.microsecondsSinceEpoch}-${login.hashCode}',
       author: (tags['display-name']?.isNotEmpty ?? false) ? tags['display-name']! : login,
@@ -280,7 +307,8 @@ class TwitchChatClient implements ChatClient {
       roles: _roles(tags['badges']),
       badges: _badges(tags['badges'], tags['badge-info']),
       authorId: tags['user-id'],
-      fragments: text.isEmpty ? const [] : _fragments(text, tags['emotes']),
+      reply: reply,
+      fragments: fragments,
       timestamp: timestamp,
       isAction: isAction,
       systemText: msg.command == 'USERNOTICE' ? tags['system-msg'] : null,
@@ -329,14 +357,17 @@ class TwitchChatClient implements ChatClient {
   }
 
   @override
-  Future<void> send(String text) async {
+  Future<void> send(String text, {ChatMessage? replyTo}) async {
     final ws = _ws;
     if (!canSend || ws == null) {
       throw ApiException('Log in to Twitch in Settings to chat.');
     }
     final clean = text.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
     if (clean.isEmpty) return;
-    ws.sink.add('PRIVMSG #$channel :$clean');
+    final replyTag = replyTo == null || replyTo.id.startsWith('self-') || replyTo.id.startsWith('tw-')
+        ? ''
+        : '@reply-parent-msg-id=${replyTo.id} ';
+    ws.sink.add('${replyTag}PRIVMSG #$channel :$clean');
     var body = clean;
     var isAction = false;
     if (body.startsWith('/me ')) {
@@ -352,6 +383,15 @@ class TwitchChatClient implements ChatClient {
       authorColor: _myColor,
       roles: _myRoles,
       badges: _myBadges,
+      reply: replyTo == null
+          ? null
+          : ChatReply(
+              parentId: replyTo.id,
+              parentLogin: replyTo.authorLogin,
+              parentName: replyTo.author,
+              parentBody: replyTo.plainText,
+              threadId: replyTo.reply?.threadId ?? replyTo.id,
+            ),
       fragments: [TextFragment(body)],
       timestamp: DateTime.now(),
       isAction: isAction,

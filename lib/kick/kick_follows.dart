@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../chat/chat_models.dart';
 import '../core/models.dart';
 import '../core/net.dart';
 import '../core/services.dart';
@@ -42,11 +43,23 @@ class KickFollows {
   }
 
   /// Sends a chat message the way kick.com does, with your kick.com login.
-  static Future<void> sendChat({required int chatroomId, required String content}) async {
+  static Future<void> sendChat({required int chatroomId, required String content, ChatMessage? replyTo}) async {
     final res = await KickWeb.instance.requestSignedIn(
       'https://kick.com/api/v2/messages/send/$chatroomId',
       method: 'POST',
-      jsonBody: {'content': content, 'type': 'message'},
+      jsonBody: replyTo == null
+          ? {'content': content, 'type': 'message'}
+          : {
+              'content': content,
+              'type': 'reply',
+              'metadata': {
+                'original_message': {'id': replyTo.id, 'content': replyTo.plainText},
+                'original_sender': {
+                  if (replyTo.authorId != null) 'id': int.tryParse(replyTo.authorId!) ?? replyTo.authorId,
+                  'username': replyTo.author,
+                },
+              },
+            },
     );
     if (res.status == 401) {
       await _setSignedIn(false);

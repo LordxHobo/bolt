@@ -52,6 +52,30 @@ class ChatBadge {
   const ChatBadge(this.set, [this.version = '', this.title, this.count]);
 }
 
+/// The message a reply answers.
+class ChatReply {
+  final String parentId;
+  final String? parentLogin;
+  final String? parentName;
+  final String? parentBody;
+
+  /// The first message of the conversation (Twitch says; for Kick it's
+  /// worked out from the messages Bolt has seen).
+  final String? threadId;
+
+  /// The parent author's account id (Kick needs it to send a reply).
+  final String? parentUserId;
+
+  const ChatReply({
+    required this.parentId,
+    this.parentLogin,
+    this.parentName,
+    this.parentBody,
+    this.threadId,
+    this.parentUserId,
+  });
+}
+
 class ChatMessage {
   final String id;
   final String author;
@@ -62,6 +86,9 @@ class ChatMessage {
 
   /// The chatter's account id on the platform, when known.
   final String? authorId;
+
+  /// Set when this message replies to another one.
+  final ChatReply? reply;
   final List<Fragment> fragments;
   final DateTime timestamp;
   final bool isAction;
@@ -81,10 +108,19 @@ class ChatMessage {
     this.roles = const {},
     this.badges = const [],
     this.authorId,
+    this.reply,
     this.isAction = false,
     this.systemText,
     this.isHistory = false,
   });
+
+  /// The message as plain text (emotes by name).
+  String get plainText => fragments
+      .map((f) => switch (f) {
+            TextFragment(:final text) => text,
+            EmoteFragment(:final emote) => emote.name,
+          })
+      .join();
 
   ChatMessage copyWith({List<Fragment>? fragments}) => ChatMessage(
         id: id,
@@ -96,6 +132,7 @@ class ChatMessage {
         roles: roles,
         badges: badges,
         authorId: authorId,
+        reply: reply,
         isAction: isAction,
         systemText: systemText,
         isHistory: isHistory,
@@ -145,7 +182,9 @@ class ChatStatusEvent extends ChatEvent {
 abstract class ChatClient {
   Stream<ChatEvent> get events;
   Future<void> connect();
-  Future<void> send(String text);
+
+  /// Sends [text]; with [replyTo], as a reply to that message.
+  Future<void> send(String text, {ChatMessage? replyTo});
   bool get canSend;
   void dispose();
 }

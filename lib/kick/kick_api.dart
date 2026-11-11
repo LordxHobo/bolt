@@ -100,6 +100,22 @@ class KickApi {
     }
     final created = DateTime.tryParse(jStr(d['created_at']) ?? '')?.toLocal();
     final username = jStr(sender['username']) ?? 'unknown';
+    ChatReply? reply;
+    final meta = jMap(d['metadata']);
+    final original = jMap(meta?['original_message']);
+    final originalSender = jMap(meta?['original_sender']);
+    final parentId = jStr(original?['id']);
+    if (parentId != null && parentId.isNotEmpty) {
+      final parentName = jStr(originalSender?['username']);
+      reply = ChatReply(
+        parentId: parentId,
+        parentLogin: (jStr(originalSender?['slug']) ?? parentName)?.toLowerCase(),
+        parentName: parentName,
+        parentBody: jStr(original?['content'])
+            ?.replaceAllMapped(RegExp(r'\[emote:\d+:([^\]]*)\]'), (m) => m.group(1) ?? ''),
+        parentUserId: jStr(originalSender?['id']) ?? jInt(originalSender?['id'])?.toString(),
+      );
+    }
     return ChatMessage(
       id: jStr(d['id']) ?? 'kick-${DateTime.now().microsecondsSinceEpoch}',
       author: username,
@@ -108,6 +124,7 @@ class KickApi {
       roles: roles,
       badges: badges,
       authorId: jStr(sender['id']) ?? jInt(sender['id'])?.toString(),
+      reply: reply,
       fragments: parseKickContent(content),
       timestamp: created ?? DateTime.now(),
       isHistory: history,

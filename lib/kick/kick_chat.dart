@@ -264,11 +264,11 @@ class KickChatClient implements ChatClient {
   }
 
   @override
-  Future<void> send(String text) async {
+  Future<void> send(String text, {ChatMessage? replyTo}) async {
     final clean = text.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
     if (clean.isEmpty) return;
     if (KickFollows.isSignedIn) {
-      await KickFollows.sendChat(chatroomId: chatroomId, content: clean);
+      await KickFollows.sendChat(chatroomId: chatroomId, content: clean, replyTo: replyTo);
       return;
     }
     final id = broadcasterUserId;

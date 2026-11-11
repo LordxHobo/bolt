@@ -195,11 +195,46 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  Future<void> send(String text) async {
+  Future<void> send(String text, {ChatMessage? replyTo}) async {
     final client = _client;
     if (client == null) return;
-    await client.send(text);
+    await client.send(text, replyTo: replyTo);
   }
+
+  ChatMessage? byId(String id) {
+    for (final m in messages) {
+      if (m.id == id) return m;
+    }
+    for (final m in _pending) {
+      if (m.id == id) return m;
+    }
+    return null;
+  }
+
+  /// The id of the first message of [m]'s conversation (its own id when
+  /// it isn't part of one).
+  String threadOf(ChatMessage m) {
+    final reply = m.reply;
+    if (reply == null) return m.id;
+    if (reply.threadId != null) return reply.threadId!;
+    // Kick only says the direct parent: walk up the replies Bolt has seen.
+    var parentId = reply.parentId;
+    for (var i = 0; i < 20; i++) {
+      final parent = byId(parentId);
+      final up = parent?.reply;
+      if (parent == null || up == null) break;
+      if (up.threadId != null) return up.threadId!;
+      parentId = up.parentId;
+    }
+    return parentId;
+  }
+
+  /// The conversation started by [rootId], oldest first, as far as Bolt has
+  /// seen it.
+  List<ChatMessage> thread(String rootId) => [
+        for (final m in messages.reversed)
+          if (m.id == rootId || (m.reply != null && threadOf(m) == rootId)) m,
+      ];
 
   @override
   void dispose() {
