@@ -113,7 +113,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
   @override
   void dispose() {
     _watch?.stop();
-    ExtensionKeeper.instance.stopChannel(ref.login);
+    ExtensionKeeper.instance.stop(ref.login);
     _infoTimer?.cancel();
     _chat?.dispose();
     WakelockPlus.disable();
@@ -657,8 +657,8 @@ class _Header extends StatelessWidget {
               if (onExtensions != null)
                 PopupMenuItem(
                   value: 'extensions',
-                  child: Text(ExtensionKeeper.instance.runningFor(channel.login) > 0
-                      ? 'Extensions (${ExtensionKeeper.instance.runningFor(channel.login)} running)'
+                  child: Text(ExtensionKeeper.instance.isRunning(channel.login)
+                      ? 'Extensions (running)'
                       : 'Extensions'),
                 ),
               const PopupMenuItem(value: 'reload', child: Text('Reload player')),
