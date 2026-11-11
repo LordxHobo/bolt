@@ -209,6 +209,10 @@ class SevenTvCosmetics extends ChangeNotifier {
               blurRadius: (jNum(sh['blur']) ?? 0).toDouble(),
             ),
     ];
+    // Paints built on a picture often have a see-through color under it;
+    // never draw a name in (nearly) invisible colors.
+    if (color != null && color.a < 0.25) color = null;
+    if (gradient != null && gradient.colors.every((c) => c.a < 0.25)) gradient = null;
     return SevenTvPaint(name, gradient: gradient, color: color, imageUrl: imageUrl, shadows: shadows);
   }
 
