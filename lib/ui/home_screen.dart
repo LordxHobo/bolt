@@ -274,7 +274,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (known != null && known.isNotEmpty) {
       // Live status for the list we already know.
       try {
-        _twitchFollows = await TwitchGql.getChannels(known);
+        _twitchFollows = _keepMissing(known, await TwitchGql.getChannels(known));
         _twitchError = null;
       } catch (e) {
         _twitchError = 'Could not check who is live: $e';
@@ -295,6 +295,20 @@ class _HomeScreenState extends State<HomeScreen>
         if (mounted) setState(() {});
       }));
     }
+  }
+
+  /// Channels Twitch left out of this check keep what we knew about them,
+  /// instead of vanishing from the list until the next check.
+  List<ChannelInfo> _keepMissing(List<String> logins, List<ChannelInfo> fresh) {
+    final gotLogins = {for (final c in fresh) c.login.toLowerCase()};
+    final gotIds = {for (final c in fresh) if (c.userId != null) c.userId!};
+    final before = {for (final c in _twitchFollows) c.login.toLowerCase(): c};
+    return [
+      ...fresh,
+      for (final l in logins)
+        if (before[l.toLowerCase()] case final old?)
+          if (!gotLogins.contains(l.toLowerCase()) && !gotIds.contains(old.userId)) old,
+    ];
   }
 
   Future<void> _fetchTwitchList(String clientId, String me) async {
@@ -366,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen>
       _saveTwitchList(me);
       // Helix only lists names; one GQL lookup per 100 adds live status,
       // viewers and avatars.
-      _twitchFollows = await TwitchGql.getChannels(_twitchLogins!);
+      _twitchFollows = _keepMissing(_twitchLogins!, await TwitchGql.getChannels(_twitchLogins!));
       _twitchError = null;
     } catch (e) {
       if (known != null && known.isNotEmpty) {

@@ -46,22 +46,64 @@ class TwitchGql {
     }
   ''';
 
-  /// Looks up to 100 channels in one request. Unknown logins are skipped.
+  /// Looks up channels, 50 per request (several at once). Twitch sometimes
+  /// answers a busy request with gaps (a channel left out, with an error);
+  /// those requests are tried again. Unknown logins are skipped.
   static Future<List<ChannelInfo>> getChannels(List<String> logins) async {
     if (logins.isEmpty) return [];
-    final results = <ChannelInfo>[];
-    for (var i = 0; i < logins.length; i += 100) {
-      final chunk = logins.sublist(i, i + 100 > logins.length ? logins.length : i + 100);
-      final data = await _query(
-        'query(\$logins: [String!]) { users(logins: \$logins) { $_userFields } }',
-        {'logins': chunk},
-      );
-      for (final u in jList(data['users'])) {
-        final user = jMap(u);
-        if (user != null) results.add(_parseUser(user));
+    const size = 50;
+    final chunks = [
+      for (var i = 0; i < logins.length; i += size)
+        logins.sublist(i, i + size > logins.length ? logins.length : i + size),
+    ];
+    final parts = <List<ChannelInfo>>[];
+    // A few at a time, so a long follow list doesn't flood Twitch.
+    for (var i = 0; i < chunks.length; i += 4) {
+      parts.addAll(await Future.wait([
+        for (final chunk in chunks.skip(i).take(4)) _channelChunk(chunk),
+      ]));
+    }
+    return [for (final p in parts) ...p];
+  }
+
+  static Future<List<ChannelInfo>> _channelChunk(List<String> chunk) async {
+    List<ChannelInfo> best = const [];
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+      try {
+        final res = await httpClient
+            .post(
+              Uri.parse('https://gql.twitch.tv/gql'),
+              headers: {
+                'Client-ID': webClientId,
+                'Content-Type': 'application/json',
+                'User-Agent': browserUserAgent,
+              },
+              body: jsonEncode({
+                'query': 'query(\$logins: [String!]) { users(logins: \$logins) { $_userFields } }',
+                'variables': {'logins': chunk},
+              }),
+            )
+            .timeout(const Duration(seconds: 15));
+        final json = jMap(decodeJson(res, 'Twitch lookup'));
+        final users = jList(jMap(json?['data'])?['users']);
+        final parsed = [
+          for (final u in users)
+            if (jMap(u) case final user?) _parseUser(user),
+        ];
+        final gaps = jList(json?['errors']).isNotEmpty;
+        if (parsed.length > best.length) best = parsed;
+        // Clean answer (people who deleted their account just come back
+        // null, without an error).
+        if (!gaps) return parsed;
+        lastError = ApiException('Twitch left out ${chunk.length - parsed.length} channels');
+      } catch (e) {
+        lastError = e;
       }
     }
-    return results;
+    if (best.isEmpty && lastError != null) throw lastError;
+    return best;
   }
 
   /// Channels [login] follows, via Twitch's site API (works with the
