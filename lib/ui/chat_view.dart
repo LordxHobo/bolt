@@ -55,16 +55,27 @@ class _ChatViewState extends State<ChatView> {
     super.dispose();
   }
 
+  /// Scrolling back down from the button: don't pause again on the way.
+  bool _jumping = false;
+
   void _onScroll() {
+    if (_jumping) return;
     // The list is reversed: offset 0 is the newest message.
     widget.controller.setPaused(_scroll.hasClients && _scroll.offset > 40);
   }
 
-  void _jumpToLatest() {
+  Future<void> _jumpToLatest() async {
     widget.controller.setPaused(false);
-    if (_scroll.hasClients) {
-      _scroll.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    if (!_scroll.hasClients) return;
+    _jumping = true;
+    try {
+      await _scroll.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    } finally {
+      _jumping = false;
     }
+    // Made sure it ended at the newest message (new ones can shift it).
+    if (mounted && _scroll.hasClients && _scroll.offset != 0) _scroll.jumpTo(0);
+    widget.controller.setPaused(false);
   }
 
   void _updateSuggestions() {

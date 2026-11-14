@@ -260,10 +260,9 @@ class ChatController extends ChangeNotifier {
       messages.insertAll(0, _pending.reversed);
       _pending.clear();
       _trim();
-      notifyListeners();
-    } else if (paused) {
-      notifyListeners();
     }
+    // Always: the "Back to live chat" button comes and goes with this.
+    notifyListeners();
   }
 
   Future<void> send(String text, {ChatMessage? replyTo}) async {
