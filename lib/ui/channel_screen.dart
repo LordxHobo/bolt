@@ -651,6 +651,7 @@ class _Header extends StatelessWidget {
               if (v == 'extensions') onExtensions?.call();
               if (v == 'browser') onOpenInBrowser();
               if (v == 'player') onTogglePlayer?.call();
+              if (v == 'latency') Services.settings.setShowLatency(!Services.settings.showLatency);
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'videos', child: Text('Past broadcasts & clips')),
@@ -662,6 +663,11 @@ class _Header extends StatelessWidget {
                       : 'Extensions'),
                 ),
               const PopupMenuItem(value: 'reload', child: Text('Reload player')),
+              CheckedPopupMenuItem(
+                value: 'latency',
+                checked: Services.settings.showLatency,
+                child: const Text('Show latency'),
+              ),
               if (onTogglePlayer != null)
                 PopupMenuItem(
                   value: 'player',

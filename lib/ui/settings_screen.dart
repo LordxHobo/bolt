@@ -299,6 +299,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onChanged: (v) => _settings.setShowPaints(v),
         ),
         SwitchListTile(
+          title: const Text('BetterTTV emotes'),
+          subtitle: const Text('Global ones, plus the channel\'s own on Twitch. Applies to chats you open next.'),
+          value: _settings.bttvEmotes,
+          onChanged: (v) => _settings.setBttvEmotes(v),
+        ),
+        SwitchListTile(
+          title: const Text('FrankerFaceZ emotes'),
+          subtitle: const Text('Global ones, plus the channel\'s own on Twitch. Applies to chats you open next.'),
+          value: _settings.ffzEmotes,
+          onChanged: (v) => _settings.setFfzEmotes(v),
+        ),
+        SwitchListTile(
           title: const Text('Show timestamps'),
           value: _settings.showTimestamps,
           onChanged: (v) => _settings.setShowTimestamps(v),

@@ -48,6 +48,7 @@ class _PickerState extends State<_Picker> {
 
   List<(String, List<Emote>)> _sections() {
     final c = widget.controller;
+    final sets = c.emoteSets;
     final recent = [
       for (final name in Services.settings.recentEmotes)
         if (c.emoteNamed(name) case final e?) e,
@@ -57,8 +58,12 @@ class _PickerState extends State<_Picker> {
     final all = <(String, List<Emote>)>[
       if (recent.isNotEmpty) ('Recent', recent),
       if (c.sevenTvChannel.isNotEmpty) ('7TV · this channel', sorted(c.sevenTvChannel.values)),
+      if (sets.bttvChannel.isNotEmpty) ('BetterTTV · this channel', sorted(sets.bttvChannel.values)),
+      if (sets.ffzChannel.isNotEmpty) ('FrankerFaceZ · this channel', sorted(sets.ffzChannel.values)),
       ...c.platformEmotes,
       if (c.sevenTvGlobal.isNotEmpty) ('7TV · global', sorted(c.sevenTvGlobal.values)),
+      if (sets.bttvGlobal.isNotEmpty) ('BetterTTV · global', sorted(sets.bttvGlobal.values)),
+      if (sets.ffzGlobal.isNotEmpty) ('FrankerFaceZ · global', sorted(sets.ffzGlobal.values)),
     ];
     final q = _query.trim().toLowerCase();
     if (q.isEmpty) return all;

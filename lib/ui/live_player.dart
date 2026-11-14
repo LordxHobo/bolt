@@ -116,6 +116,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    Services.settings.addListener(_onSettings);
     _start();
   }
 
@@ -179,9 +180,19 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     );
   }
 
+  bool _shownLatency = Services.settings.showLatency;
+
+  /// Show latency switched from the channel menu: update the video right away.
+  void _onSettings() {
+    if (mounted && Services.settings.showLatency != _shownLatency) {
+      setState(() => _shownLatency = Services.settings.showLatency);
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    Services.settings.removeListener(_onSettings);
     _session++;
     _hideTimer?.cancel();
     _latencyTimer?.cancel();

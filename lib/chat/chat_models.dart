@@ -1,6 +1,16 @@
 import 'package:flutter/material.dart';
 
-enum EmoteSource { twitch, kick, sevenTv }
+enum EmoteSource { twitch, kick, sevenTv, bttv, ffz }
+
+extension EmoteSourceX on EmoteSource {
+  String get label => switch (this) {
+        EmoteSource.twitch => 'Twitch',
+        EmoteSource.kick => 'Kick',
+        EmoteSource.sevenTv => '7TV',
+        EmoteSource.bttv => 'BetterTTV',
+        EmoteSource.ffz => 'FrankerFaceZ',
+      };
+}
 
 class Emote {
   final String name;
@@ -10,6 +20,15 @@ class Emote {
   final bool zeroWidth;
   final EmoteSource source;
 
+  /// The emote's id on its service, when known.
+  final String? id;
+
+  /// Global (everywhere) or this channel's; null when unknown.
+  final bool? isGlobal;
+
+  /// Who made or uploaded it (7TV, BetterTTV, FrankerFaceZ).
+  final String? creator;
+
   const Emote({
     required this.name,
     required this.url,
@@ -17,7 +36,23 @@ class Emote {
     this.width,
     this.height,
     this.zeroWidth = false,
+    this.id,
+    this.isGlobal,
+    this.creator,
   });
+
+  /// The id, also for emotes built before ids were kept (from the address).
+  String? get resolvedId {
+    if (id != null) return id;
+    final m = switch (source) {
+      EmoteSource.twitch => RegExp(r'/emoticons/v2/([^/]+)/').firstMatch(url),
+      EmoteSource.kick => RegExp(r'/emotes/(\d+)').firstMatch(url),
+      EmoteSource.sevenTv => RegExp(r'/emote/([^/]+)/').firstMatch(url),
+      EmoteSource.bttv => RegExp(r'/emote/([^/]+)/').firstMatch(url),
+      EmoteSource.ffz => RegExp(r'/emote/(\d+)/').firstMatch(url),
+    };
+    return m?.group(1);
+  }
 }
 
 /// A piece of a chat message: either plain text or an emote (optionally with

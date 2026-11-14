@@ -11,7 +11,7 @@ import '../twitch/twitch_chat.dart';
 import '../twitch/twitch_live_events.dart';
 import 'badges.dart';
 import 'chat_models.dart';
-import 'seventv.dart';
+import 'third_party_emotes.dart';
 import 'seventv_cosmetics.dart';
 
 /// Owns one channel's chat connection, emotes and message list.
@@ -64,6 +64,9 @@ class ChatController extends ChangeNotifier {
   /// the picker first opens) the Twitch/Kick emotes you can use.
   Map<String, Emote> sevenTvChannel = const {};
   Map<String, Emote> sevenTvGlobal = const {};
+
+  /// Every add-on emote set (7TV, BetterTTV, FrankerFaceZ).
+  EmoteSets emoteSets = const EmoteSets();
   List<(String, List<Emote>)> platformEmotes = const [];
   Future<void>? _platformEmotesLoad;
 
@@ -96,16 +99,13 @@ class ChatController extends ChangeNotifier {
   Future<void> _loadEmotes([String? userId]) async {
     final id = userId ?? channel.userId;
     _emoteUserId = id;
-    final results = await Future.wait([
-      SevenTv.global(),
-      SevenTv.forChannel(channel.platform, id),
-    ]);
+    final sets = await EmoteSets.load(channel.platform, id);
     // A newer load (with the real channel id) superseded this one.
     if (_disposed || _emoteUserId != id) return;
-    // Channel emotes win over global ones with the same name.
-    _emotes = {...results[0], ...results[1]};
-    sevenTvGlobal = results[0];
-    sevenTvChannel = results[1];
+    _emotes = sets.merged;
+    emoteSets = sets;
+    sevenTvGlobal = sets.sevenTvGlobal;
+    sevenTvChannel = sets.sevenTvChannel;
     // Re-render messages that arrived before the emotes did.
     for (var i = 0; i < messages.length; i++) {
       messages[i] = messages[i].copyWith(fragments: applyEmotes(messages[i].fragments, _emotes));

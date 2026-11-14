@@ -31,7 +31,7 @@ class SevenTv {
         final res = await httpClient.get(Uri.parse('https://7tv.io/v3/users/$p'));
         if (res.statusCode == 404) continue;
         final json = jMap(decodeJson(res, '7TV'));
-        return _parseEmotes(jList(jMap(json?['emote_set'])?['emotes']));
+        return _parseEmotes(jList(jMap(json?['emote_set'])?['emotes']), global: false);
       } catch (e) {
         debugPrint('7TV lookup $p failed: $e');
       }
@@ -43,14 +43,14 @@ class SevenTv {
     try {
       final res = await httpClient.get(Uri.parse(url));
       final json = jMap(decodeJson(res, '7TV'));
-      return _parseEmotes(jList(json?['emotes']));
+      return _parseEmotes(jList(json?['emotes']), global: true);
     } catch (e) {
       debugPrint('7TV global failed: $e');
       return {};
     }
   }
 
-  static Map<String, Emote> _parseEmotes(List<dynamic> list) {
+  static Map<String, Emote> _parseEmotes(List<dynamic> list, {required bool global}) {
     final out = <String, Emote>{};
     for (final raw in list) {
       final e = jMap(raw);
@@ -90,6 +90,9 @@ class SevenTv {
         height: (jInt(first['height']) ?? 0).toDouble(),
         zeroWidth: (flags & 256) == 256,
         source: EmoteSource.sevenTv,
+        id: jStr(e?['id']) ?? jStr(data?['id']),
+        isGlobal: global,
+        creator: jStr(jMap(data?['owner'])?['display_name']) ?? jStr(jMap(data?['owner'])?['username']),
       );
     }
     return out;

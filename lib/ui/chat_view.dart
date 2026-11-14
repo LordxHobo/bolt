@@ -12,6 +12,7 @@ import '../chat/seventv_cosmetics.dart';
 import '../core/models.dart';
 import '../core/services.dart';
 import '../kick/kick_follows.dart';
+import 'emote_card.dart';
 import 'emote_picker.dart';
 import 'live_event_cards.dart';
 import 'settings_screen.dart';
@@ -795,14 +796,21 @@ class _EmoteImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final image = Tooltip(message: emote.name, child: _image(emote));
-    if (overlays.isEmpty) return image;
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        image,
-        for (final o in overlays) _image(o),
-      ],
+    final image = _image(emote);
+    // Tap: what the emote is and where it's from (long-press still opens the
+    // message's menu).
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => showEmoteCard(context, emote, overlays: overlays),
+      child: overlays.isEmpty
+          ? image
+          : Stack(
+              alignment: Alignment.center,
+              children: [
+                image,
+                for (final o in overlays) _image(o),
+              ],
+            ),
     );
   }
 }

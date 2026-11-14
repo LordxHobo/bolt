@@ -127,6 +127,8 @@ class Settings extends ChangeNotifier {
 
   /// Chat: draw 7TV name paints.
   bool showPaints = true;
+  bool bttvEmotes = true;
+  bool ffzEmotes = true;
 
   /// Home: live channels as tiles with a preview picture (else a list).
   bool homeTiles = false;
@@ -193,6 +195,8 @@ class Settings extends ChangeNotifier {
     mutedUsers = _prefs.getStringList('mutedUsers') ?? [];
     highlightWords = _prefs.getStringList('highlightWords') ?? [];
     showPaints = _prefs.getBool('showPaints') ?? true;
+    bttvEmotes = _prefs.getBool('bttvEmotes') ?? true;
+    ffzEmotes = _prefs.getBool('ffzEmotes') ?? true;
     homeTiles = _prefs.getBool('homeTiles') ?? false;
     previewNotes = _prefs.getBool('previewNotes') ?? false;
     landscapeChat = _prefs.getBool('landscapeChat') ?? true;
@@ -334,6 +338,18 @@ class Settings extends ChangeNotifier {
   Future<void> setShowPaints(bool v) async {
     showPaints = v;
     await _prefs.setBool('showPaints', v);
+    notifyListeners();
+  }
+
+  Future<void> setBttvEmotes(bool v) async {
+    bttvEmotes = v;
+    await _prefs.setBool('bttvEmotes', v);
+    notifyListeners();
+  }
+
+  Future<void> setFfzEmotes(bool v) async {
+    ffzEmotes = v;
+    await _prefs.setBool('ffzEmotes', v);
     notifyListeners();
   }
 

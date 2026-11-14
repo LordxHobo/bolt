@@ -6,7 +6,7 @@ import '../core/models.dart';
 import '../core/videos_api.dart';
 import 'badges.dart';
 import 'chat_models.dart';
-import 'seventv.dart';
+import 'third_party_emotes.dart';
 
 /// Chat of a past broadcast, kept in step with the video's position.
 class ChatReplay extends ChangeNotifier {
@@ -43,8 +43,7 @@ class ChatReplay extends ChangeNotifier {
 
   Future<void> _loadEmotes() async {
     try {
-      final r = await Future.wait([SevenTv.global(), SevenTv.forChannel(channel.platform, channel.userId)]);
-      _emotes = {...r[0], ...r[1]};
+      _emotes = (await EmoteSets.load(channel.platform, channel.userId)).merged;
       for (var i = 0; i < _buffer.length; i++) {
         final (t, m) = _buffer[i];
         _buffer[i] = (t, m.copyWith(fragments: applyEmotes(m.fragments, _emotes)));
