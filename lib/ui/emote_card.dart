@@ -104,8 +104,12 @@ class _EmoteCardState extends State<_EmoteCard> {
     final e = _emote;
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
     final all = [widget.emote, ...widget.overlays];
+    // Full width, always: on its own a sheet takes the width of what's in
+    // it, which changes as the emote and its details load.
     return SafeArea(
-      child: Padding(
+      child: SizedBox(
+        width: double.infinity,
+        child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -201,6 +205,7 @@ class _EmoteCardState extends State<_EmoteCard> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
