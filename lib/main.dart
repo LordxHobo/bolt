@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import 'core/models.dart';
 import 'core/services.dart';
+import 'core/tv.dart';
 import 'ui/channel_screen.dart';
 import 'ui/home_screen.dart';
 
@@ -97,7 +98,22 @@ class _RelayAppState extends State<RelayApp> {
           centerTitle: false,
         ),
         dividerColor: Colors.white12,
+        // TV: the remote's focus has to be easy to see from across the room.
+        focusColor: TvMode.isTv ? const Color(0x667C5CFF) : null,
       ),
+      // TV remotes: the middle (OK) button presses whatever has focus.
+      shortcuts: {
+        ...WidgetsApp.defaultShortcuts,
+        const SingleActivator(LogicalKeyboardKey.select): const ActivateIntent(),
+        const SingleActivator(LogicalKeyboardKey.gameButtonA): const ActivateIntent(),
+      },
+      // A little bigger on a TV, read from the sofa.
+      builder: (context, child) => !TvMode.isTv
+          ? child!
+          : MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.15)),
+              child: child!,
+            ),
       home: FutureBuilder<void>(
         future: _init,
         builder: (context, snap) {

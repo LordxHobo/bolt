@@ -21,10 +21,13 @@ import 'user_card.dart';
 import 'widgets.dart';
 
 class ChatView extends StatefulWidget {
-  const ChatView({super.key, required this.controller, required this.platform});
+  const ChatView({super.key, required this.controller, required this.platform, this.readOnly = false});
 
   final ChatController controller;
   final StreamPlatform platform;
+
+  /// Just the messages (TV): no typing, replies or suggestions.
+  final bool readOnly;
 
   @override
   State<ChatView> createState() => _ChatViewState();
@@ -266,9 +269,11 @@ class _ChatViewState extends State<ChatView> {
                 ],
               ),
             ),
-            if (_suggestions.isNotEmpty) _suggestionBar(),
-            if (_replyTo != null && c.canSend) _replyBar(_replyTo!),
-            _inputBar(c),
+            if (!widget.readOnly) ...[
+              if (_suggestions.isNotEmpty) _suggestionBar(),
+              if (_replyTo != null && c.canSend) _replyBar(_replyTo!),
+              _inputBar(c),
+            ],
           ],
         );
       },

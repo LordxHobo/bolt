@@ -2,6 +2,7 @@ import '../kick/kick_auth.dart';
 import '../twitch/twitch_auth.dart';
 import 'live_alerts.dart';
 import 'settings.dart';
+import 'tv.dart';
 
 /// App-wide singletons. This is a single-user app, so plain globals keep
 /// things simple.
@@ -12,6 +13,7 @@ class Services {
 
   static Future<void> init() async {
     await settings.load();
+    await TvMode.init();
     await Future.wait([twitch.load(), kick.load()]);
     await _migrateTwitchWebLogin();
     LiveAlerts.start();

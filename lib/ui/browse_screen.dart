@@ -8,6 +8,7 @@ import '../core/browse_api.dart';
 import '../core/models.dart';
 import '../core/services.dart';
 import 'home_screen.dart' show LiveTile;
+import 'tv_widgets.dart';
 import 'widgets.dart';
 
 /// Browse and search Twitch and Kick: top streams, categories, and search
@@ -222,7 +223,7 @@ class _CategoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return InkWell(
+    return TvFocusRing(child: InkWell(
       onTap: () => onTap(category),
       borderRadius: BorderRadius.circular(8),
       child: SizedBox(
@@ -253,7 +254,7 @@ class _CategoryCard extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ));
   }
 }
 

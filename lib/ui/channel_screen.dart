@@ -19,6 +19,8 @@ import '../core/settings.dart';
 import '../player/sources.dart';
 import 'live_player.dart';
 import 'twitch_player.dart';
+import 'tv_widgets.dart';
+import '../core/tv.dart';
 import '../twitch/twitch_extensions.dart';
 import 'extensions_screen.dart';
 import 'videos_screen.dart';
@@ -112,6 +114,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
   @override
   void dispose() {
+    _tvHide?.cancel();
+    _tvFocus.dispose();
+    _tvFirst.dispose();
     _watch?.stop();
     ExtensionKeeper.instance.stop(ref.login);
     _infoTimer?.cancel();
@@ -221,7 +226,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       ..showSnackBar(SnackBar(content: Text('${ref.login} now uses the ${next.label}')));
   }
 
-  Widget _player({VoidCallback? onDoubleTap, double latencyRightInset = 8, bool compact = false}) {
+  Widget _player({VoidCallback? onDoubleTap, double latencyRightInset = 8, bool compact = false, bool tv = false}) {
     if (_useWebPlayer) {
       return TwitchPlayer(key: _webKey, login: ref.login);
     }
@@ -237,6 +242,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
         onDoubleTap: onDoubleTap,
         latencyRightInset: latencyRightInset,
         compact: compact,
+      tv: tv,
         mediaTitle: _info?.title,
         mediaArtist: _info?.displayName ?? ref.login,
         mediaArtwork: _info?.avatarUrl,
@@ -263,6 +269,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       onDoubleTap: onDoubleTap,
       latencyRightInset: latencyRightInset,
       compact: compact,
+      tv: tv,
       mediaTitle: info.title,
       mediaArtist: info.displayName,
       mediaArtwork: info.avatarUrl,
@@ -270,9 +277,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
     );
   }
 
-  Widget _chatArea() {
+  Widget _chatArea({bool readOnly = false}) {
     final chat = _chat;
-    if (chat != null) return ChatView(controller: chat, platform: ref.platform);
+    if (chat != null) return ChatView(controller: chat, platform: ref.platform, readOnly: readOnly);
     if (_error != null) {
       return Center(
         child: Padding(
@@ -305,7 +312,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       listenable: Services.settings,
       builder: (context, _) => Scaffold(
         backgroundColor: Colors.black,
-        body: landscape ? _landscape() : _portrait(),
+        body: TvMode.isTv ? _tv() : landscape ? _landscape() : _portrait(),
       ),
     );
   }
@@ -476,6 +483,230 @@ class _ChannelScreenState extends State<ChannelScreen> {
       return;
     }
     Navigator.of(context).pushReplacement(ChannelRoute(channel: channel, info: info));
+  }
+
+  // ---------------------------------------------------------------- TV
+
+  final _tvFocus = FocusNode(debugLabel: 'tv player');
+  final _tvFirst = FocusNode(debugLabel: 'tv options');
+  bool _tvMenu = false;
+  bool _tvHint = true;
+  Timer? _tvHide;
+
+  void _showTvMenu() {
+    setState(() {
+      _tvMenu = true;
+      _tvHint = false;
+    });
+    _bumpTvMenu();
+    // Onto the first option (the player itself has focus until now).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _tvMenu) _tvFirst.requestFocus();
+    });
+  }
+
+  /// The options bar stays while you use it, and hides 8 s after the last key.
+  void _bumpTvMenu() {
+    _tvHide?.cancel();
+    _tvHide = Timer(const Duration(seconds: 8), _hideTvMenu);
+  }
+
+  void _hideTvMenu() {
+    _tvHide?.cancel();
+    if (!mounted) return;
+    if (_tvMenu) setState(() => _tvMenu = false);
+    _tvFocus.requestFocus();
+  }
+
+  KeyEventResult _onTvKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (_tvMenu) {
+      // Moving around the options bar: keep it up.
+      _bumpTvMenu();
+      return KeyEventResult.ignored;
+    }
+    if (key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.contextMenu) {
+      _showTvMenu();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      if (!_showChatLandscape) setState(() => _showChatLandscape = true);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (_showChatLandscape) setState(() => _showChatLandscape = false);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.mediaPlayPause ||
+        key == LogicalKeyboardKey.mediaPlay ||
+        key == LogicalKeyboardKey.mediaPause) {
+      _liveKey.currentState?.togglePlay();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  Future<void> _tvQuality() async {
+    _tvHide?.cancel();
+    await _liveKey.currentState?.showQualityMenu();
+    _hideTvMenu();
+  }
+
+  /// TV: the stream full screen, chat down the side, and an options bar
+  /// for the remote (OK to open it, Back to close it).
+  Widget _tv() {
+    final theme = Theme.of(context);
+    final info = _info;
+    final favorite = Services.settings.isFavorite(ref);
+    if (_tvHint) {
+      // Say how the remote works for a few seconds after opening.
+      _tvHide ??= Timer(const Duration(seconds: 6), () {
+        if (mounted) setState(() => _tvHint = false);
+        _tvHide = null;
+      });
+    }
+    return PopScope(
+      canPop: !_tvMenu,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _hideTvMenu();
+      },
+      child: Focus(
+        focusNode: _tvFocus,
+        autofocus: true,
+        onKeyEvent: _onTvKey,
+        child: Stack(
+          children: [
+            Row(
+              children: [
+                Expanded(child: _player(latencyRightInset: 16, tv: true)),
+                if (_showChatLandscape)
+                  SizedBox(
+                    width: 320,
+                    child: ColoredBox(
+                      color: theme.scaffoldBackgroundColor,
+                      // Chat is to read: the remote never lands in it.
+                      child: ExcludeFocus(child: _chatArea(readOnly: true)),
+                    ),
+                  ),
+              ],
+            ),
+            if (_tvHint && !_tvMenu)
+              Positioned(
+                left: 24,
+                bottom: 24,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(20)),
+                  child: Text(
+                    'OK: options  ·  ◀ ▶: hide / show chat  ·  Back: close',
+                    style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white),
+                  ),
+                ),
+              ),
+            if (_tvMenu)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(28, 48, 28, 24),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black87, Colors.black],
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          if (info != null) ChannelAvatar(info: info, size: 44),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(info?.displayName ?? ref.login,
+                                    style: theme.textTheme.titleLarge
+                                        ?.copyWith(color: Colors.white, fontWeight: FontWeight.w800)),
+                                if ((info?.title ?? '').isNotEmpty)
+                                  Text(info!.title!,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70)),
+                                Text(
+                                  [
+                                    ref.platform.label,
+                                    if (info?.category != null) info!.category!,
+                                    if (info?.isLive == true && info?.viewers != null)
+                                      '${formatViewers(info!.viewers)} watching',
+                                    if (info?.isLive == true && info?.startedAt != null)
+                                      'live for ${formatUptime(info!.startedAt!)}',
+                                  ].join(' · '),
+                                  style: theme.textTheme.bodySmall?.copyWith(color: Colors.white60),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      FocusTraversalGroup(
+                        child: Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            TvButton(
+                              focusNode: _tvFirst,
+                              icon: _showChatLandscape ? Icons.speaker_notes_off_outlined : Icons.chat_outlined,
+                              label: _showChatLandscape ? 'Hide chat' : 'Show chat',
+                              onPressed: () => setState(() => _showChatLandscape = !_showChatLandscape),
+                            ),
+                            if (!_useWebPlayer)
+                              TvButton(
+                                icon: Icons.high_quality_outlined,
+                                label: 'Quality / audio only',
+                                onPressed: _tvQuality,
+                              ),
+                            TvButton(
+                              icon: Icons.speed_rounded,
+                              label: Services.settings.showLatency ? 'Hide latency' : 'Show latency',
+                              onPressed: () => Services.settings.setShowLatency(!Services.settings.showLatency),
+                            ),
+                            TvButton(
+                              icon: favorite ? Icons.star_rounded : Icons.star_outline_rounded,
+                              label: favorite ? 'Unfavorite' : 'Favorite',
+                              onPressed: () => Services.settings.toggleFavorite(ref),
+                            ),
+                            TvButton(
+                              icon: Icons.refresh_rounded,
+                              label: 'Reload',
+                              onPressed: () {
+                                _reloadPlayer();
+                                _hideTvMenu();
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _landscape() {

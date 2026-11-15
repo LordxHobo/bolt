@@ -9,6 +9,7 @@ import '../core/models.dart';
 import '../core/net.dart';
 import '../core/services.dart';
 import '../core/settings.dart';
+import '../core/tv.dart';
 import '../kick/kick_api.dart';
 import '../kick/kick_follows.dart';
 import '../kick/kick_web.dart';
@@ -17,6 +18,7 @@ import '../twitch/twitch_web.dart';
 import 'browse_screen.dart';
 import 'channel_screen.dart';
 import 'settings_screen.dart';
+import 'tv_widgets.dart';
 import 'widgets.dart';
 
 extension on HomeView {
@@ -636,6 +638,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (TvMode.isTv && widget.onOpenChannel == null) return _buildTv(theme);
     return Scaffold(
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showOpenDialog,
@@ -829,8 +832,83 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  /// TV: a menu down the left, the channels as tiles on the right.
+  Widget _buildTv(ThemeData theme) {
+    IconData icon(HomeView v) => switch (v) {
+          HomeView.following => Icons.people_alt_outlined,
+          HomeView.favorites => Icons.star_outline_rounded,
+          HomeView.twitch => Icons.videogame_asset_outlined,
+          HomeView.kick => Icons.sports_esports_outlined,
+        };
+    const order = [HomeView.following, HomeView.favorites, HomeView.twitch, HomeView.kick];
+    return Scaffold(
+      body: Row(
+        children: [
+          Container(
+            width: 230,
+            color: theme.colorScheme.surfaceContainerLow,
+            padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+            child: FocusTraversalGroup(
+              child: ListView(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 20),
+                    child: Text('Bolt',
+                        style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+                  ),
+                  for (final v in order)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: TvButton(
+                        expand: true,
+                        autofocus: v == _view,
+                        selected: v == _view,
+                        icon: icon(v),
+                        label: v.label,
+                        onPressed: () => _select(v),
+                      ),
+                    ),
+                  const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Divider()),
+                  for (final (i, l, f) in <(IconData, String, VoidCallback)>[
+                    (
+                      Icons.search_rounded,
+                      'Browse',
+                      () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => BrowseScreen(onOpen: _open)),
+                          ),
+                    ),
+                    (Icons.refresh_rounded, _loading ? 'Refreshing…' : 'Refresh', () => _refresh(full: true)),
+                    (
+                      Icons.settings_outlined,
+                      'Settings',
+                      () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                          ),
+                    ),
+                  ])
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: TvButton(expand: true, icon: i, label: l, onPressed: f),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
+              child: FocusTraversalGroup(child: _buildList()),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildList() {
     final settings = Services.settings;
+    // Tiles always on a TV (pictures are what you pick from across a room).
+    final tiles = settings.homeTiles || TvMode.isTv;
     late final List<_Entry> entries;
     final notices = <String>[];
     var loaded = true;
@@ -883,15 +961,15 @@ class _HomeScreenState extends State<HomeScreen>
           else if (entries.isEmpty && emptyText.isNotEmpty)
             _EmptyState(emptyText),
           if (liveCount > 0) SectionHeader('Live · $liveCount'),
-          if (settings.homeTiles && liveCount > 0)
+          if (tiles && liveCount > 0)
             _LiveTiles(
               entries: entries.where((e) => e.primary.isLive).toList(),
               settings: settings,
               onOpen: _open,
               onLongPress: _longPress,
             ),
-          for (var i = settings.homeTiles ? math.max(firstOffline, 0) : 0;
-              i < entries.length && !(settings.homeTiles && firstOffline < 0);
+          for (var i = tiles ? math.max(firstOffline, 0) : 0;
+              i < entries.length && !(tiles && firstOffline < 0);
               i++) ...[
             if (i == firstOffline) const SectionHeader('Offline'),
             ChannelTile(
@@ -1026,7 +1104,7 @@ class LiveTile extends StatelessWidget {
       alignment: Alignment.center,
       child: ChannelAvatar(info: info, size: 40),
     );
-    return InkWell(
+    return TvFocusRing(child: InkWell(
       onTap: onTap,
       onLongPress: onLongPress,
       borderRadius: BorderRadius.circular(10),
@@ -1152,7 +1230,7 @@ class LiveTile extends StatelessWidget {
                 style: theme.textTheme.bodySmall?.copyWith(color: muted)),
         ],
       ),
-    );
+    ));
   }
 }
 

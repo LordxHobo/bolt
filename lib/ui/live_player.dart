@@ -26,7 +26,12 @@ class LivePlayer extends StatefulWidget {
     this.mediaArtist,
     this.mediaArtwork,
     this.ivs = false,
+    this.tv = false,
   });
+
+  /// TV layout: no touch controls (the channel screen's remote menu
+  /// drives the player instead).
+  final bool tv;
 
   /// Builds the stream source; called again on every reload.
   final StreamSource Function() createSource;
@@ -149,6 +154,10 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     _pausedForOther = false;
     reload();
   }
+
+  /// For the TV remote.
+  void togglePlay() => _playPause();
+  Future<void> showQualityMenu() => _showQualityMenu();
 
   void _playPause() {
     final c = _controller;
@@ -621,7 +630,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
                     ),
                 },
               ),
-            if (!widget.compact)
+            if (!widget.compact && !widget.tv)
             AnimatedOpacity(
               opacity: _showControls ? 1 : 0,
               duration: const Duration(milliseconds: 200),

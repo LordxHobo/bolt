@@ -32,6 +32,8 @@ dependencies:
   url_launcher: ^6.3.1
   wakelock_plus: ^1.2.8
   crypto: ^3.0.6
+  # Tells a Fire TV / Android TV apart from a phone (TV layout).
+  device_info_plus: ^11.3.0
   # Opens relay://open/<platform>/<name> links (taps on live alerts).
   app_links: ^6.3.3
 

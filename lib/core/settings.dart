@@ -137,6 +137,9 @@ class Settings extends ChangeNotifier {
   bool previewNotes = false;
   bool landscapeChat = true;
 
+  /// TV layout: 'auto', 'on' or 'off' (applies at next start).
+  String tvLayout = 'auto';
+
   List<ChannelRef> favorites = [];
 
   /// Live alerts (see server/live-alerts): the checker's address, Relay's
@@ -200,6 +203,7 @@ class Settings extends ChangeNotifier {
     homeTiles = _prefs.getBool('homeTiles') ?? false;
     previewNotes = _prefs.getBool('previewNotes') ?? false;
     landscapeChat = _prefs.getBool('landscapeChat') ?? true;
+    tvLayout = _prefs.getString('tvLayout') ?? 'auto';
     alertsServer = _prefs.getString('alertsServer') ?? '';
     alertsTopic = _prefs.getString('alertsTopic') ?? '';
     if (alertsTopic.isEmpty) {
@@ -395,6 +399,12 @@ class Settings extends ChangeNotifier {
   Future<void> setShowTimestamps(bool v) async {
     showTimestamps = v;
     await _prefs.setBool('showTimestamps', v);
+    notifyListeners();
+  }
+
+  Future<void> setTvLayout(String v) async {
+    tvLayout = v;
+    await _prefs.setString('tvLayout', v);
     notifyListeners();
   }
 

@@ -55,6 +55,31 @@ void _android() {
           '            </intent-filter>',
     );
   }
+  // Fire TV / Android TV: installable without a touchscreen, listed on the
+  // TV's home screen, with a banner picture there.
+  if (!s.contains('android.hardware.touchscreen')) {
+    s = s.replaceFirst(
+      '<application',
+      '<uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n'
+          '    <uses-feature android:name="android.software.leanback" android:required="false" />\n'
+          '    <application',
+    );
+  }
+  if (!s.contains('LEANBACK_LAUNCHER')) {
+    s = s.replaceFirstMapped(
+      RegExp(r'<category android:name="android\.intent\.category\.LAUNCHER"\s*/>'),
+      (m) => '${m.group(0)}\n'
+          '                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>',
+    );
+  }
+  final banner = File('assets/tv/banner.png');
+  if (banner.existsSync()) {
+    final dir = Directory('android/app/src/main/res/drawable-xhdpi')..createSync(recursive: true);
+    banner.copySync('${dir.path}/tv_banner.png');
+    if (!s.contains('android:banner')) {
+      s = s.replaceFirst('<application', '<application\n        android:banner="@drawable/tv_banner"');
+    }
+  }
   manifest.writeAsStringSync(s);
   stdout.writeln('Patched ${manifest.path}');
 

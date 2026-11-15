@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../core/models.dart';
 import '../core/services.dart';
+import '../core/tv.dart';
 import '../core/settings.dart';
 import '../twitch/adblock.dart';
 import '../twitch/twitch_watch.dart';
@@ -111,6 +112,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   List<Widget> _home(BuildContext context) => [
+        ListTile(
+          title: const Text('TV layout'),
+          subtitle: Text(
+            'For Fire TV and Android TV: big tiles and remote controls. '
+            'Automatic ${TvMode.detected ? 'found a TV' : 'found a phone or tablet'}. '
+            'Takes effect next time Bolt starts.',
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'auto', label: Text('Automatic')),
+              ButtonSegment(value: 'on', label: Text('Always')),
+              ButtonSegment(value: 'off', label: Text('Never')),
+            ],
+            selected: {_settings.tvLayout},
+            showSelectedIcon: false,
+            onSelectionChanged: (v) => _settings.setTvLayout(v.first),
+          ),
+        ),
         SwitchListTile(
           title: const Text('Preview troubleshooting notes'),
           subtitle: const Text('In tile view, tiles without a preview say why'),
