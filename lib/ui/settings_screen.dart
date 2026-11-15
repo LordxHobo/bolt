@@ -9,6 +9,7 @@ import '../twitch/adblock.dart';
 import '../twitch/twitch_watch.dart';
 import '../kick/kick_follows.dart';
 import 'chat_filters_screen.dart';
+import 'tv_pair_screens.dart';
 import 'kick_web_login_screen.dart';
 import 'live_alerts_screen.dart';
 import 'twitch_web_login_screen.dart';
@@ -108,6 +109,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ? TextButton(onPressed: _signOutKick, child: const Text('Sign out'))
             : FilledButton(onPressed: _signInKick, child: const Text('Sign in')),
       ),
+      if (TvMode.isTv)
+        ListTile(
+          leading: const Icon(Icons.phonelink_rounded),
+          title: const Text('Sign in from your phone'),
+          subtitle: const Text('Copies the Twitch and Kick sign-ins from Bolt on your phone'),
+          onTap: () => Navigator.of(context)
+              .push(MaterialPageRoute<void>(builder: (_) => const TvSignInScreen())),
+        )
+      else
+        ListTile(
+          leading: const Icon(Icons.connected_tv_rounded),
+          title: const Text('Send sign-ins to a TV'),
+          subtitle: const Text('Signs Bolt on your Fire TV in to these same accounts'),
+          onTap: () => Navigator.of(context)
+              .push(MaterialPageRoute<void>(builder: (_) => const SendToTvScreen())),
+        ),
     ];
   }
 

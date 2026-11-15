@@ -183,6 +183,16 @@ void _ios() {
       '</dict>\n</plist>\n',
     );
   }
+  // Sending your sign-ins to Bolt on a TV goes over the home Wi-Fi, which
+  // iOS asks permission for.
+  if (!s.contains('NSLocalNetworkUsageDescription')) {
+    s = s.replaceFirst(
+      RegExp(r'</dict>\s*</plist>\s*$'),
+      '\t<key>NSLocalNetworkUsageDescription</key>\n'
+      '\t<string>Bolt sends your sign-ins to Bolt on your TV over your home Wi-Fi.</string>\n'
+      '</dict>\n</plist>\n',
+    );
+  }
   if (!s.contains('FlutterDeepLinkingEnabled')) {
     s = s.replaceFirst(
       RegExp(r'</dict>\s*</plist>\s*$'),

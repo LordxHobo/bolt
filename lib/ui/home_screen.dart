@@ -18,6 +18,7 @@ import '../twitch/twitch_web.dart';
 import 'browse_screen.dart';
 import 'channel_screen.dart';
 import 'settings_screen.dart';
+import 'tv_pair_screens.dart';
 import 'tv_widgets.dart';
 import 'widgets.dart';
 
@@ -878,6 +879,13 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                     ),
                     (Icons.refresh_rounded, _loading ? 'Refreshing…' : 'Refresh', () => _refresh(full: true)),
+                    (
+                      Icons.phonelink_rounded,
+                      'Sign in from phone',
+                      () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const TvSignInScreen()),
+                          ),
+                    ),
                     (
                       Icons.settings_outlined,
                       'Settings',

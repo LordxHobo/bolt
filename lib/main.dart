@@ -10,6 +10,7 @@ import 'core/services.dart';
 import 'core/tv.dart';
 import 'ui/channel_screen.dart';
 import 'ui/home_screen.dart';
+import 'ui/tv_pair_screens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,6 +60,7 @@ class _RelayAppState extends State<RelayApp> {
   }
 
   Future<void> _openLink(Uri uri) async {
+    if (uri.scheme == 'relay' && uri.host == 'pair') return _openPair(uri);
     if (uri.scheme != 'relay' || uri.host != 'open') return;
     final parts = uri.pathSegments.where((p) => p.isNotEmpty).toList();
     if (parts.length < 2 || !const ['twitch', 'kick'].contains(parts[0])) return;
@@ -76,6 +78,25 @@ class _RelayAppState extends State<RelayApp> {
     // Replace whatever stream is open (or in the mini player).
     nav.popUntil((route) => route.isFirst);
     unawaited(nav.push(ChannelRoute(channel: channel)));
+  }
+
+  /// relay://pair?h=<TV address>&c=<code>: the QR code on Bolt's TV
+  /// sign-in screen, scanned with the phone's camera.
+  Future<void> _openPair(Uri uri) async {
+    final host = uri.queryParameters['h'];
+    final code = uri.queryParameters['c'];
+    if (host == null || code == null) return;
+    try {
+      await _init;
+    } catch (_) {
+      return;
+    }
+    for (var i = 0; i < 20 && _navigator.currentState == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    unawaited(_navigator.currentState?.push(MaterialPageRoute<void>(
+      builder: (_) => SendToTvScreen(host: host, code: code),
+    )));
   }
 
   @override
