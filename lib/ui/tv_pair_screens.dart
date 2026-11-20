@@ -205,7 +205,9 @@ class _SendToTvScreenState extends State<SendToTvScreen> {
             if (!fromQr) ...[
               TextField(
                 controller: _host,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                // Not the number pad: in many regions its "decimal" key is a
+                // comma. The URL keyboard always has a dot.
+                keyboardType: TextInputType.url,
                 autocorrect: false,
                 decoration: const InputDecoration(
                   labelText: 'TV address',

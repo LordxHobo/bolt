@@ -114,7 +114,8 @@ class TvPairing {
 
   /// Sends your sign-ins to the TV at [host] showing [code].
   static Future<String> send(String host, String code) async {
-    host = host.trim();
+    // Commas count as dots (some number pads only have a comma).
+    host = host.trim().replaceAll(',', '.').replaceAll(' ', '');
     if (host.contains(':')) host = host.split(':').first;
     if (!isLocalAddress(host)) {
       throw ApiException('That isn\'t an address on your home network ($host).');
