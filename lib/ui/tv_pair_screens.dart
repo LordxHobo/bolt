@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../core/tv_pairing.dart';
@@ -70,13 +71,13 @@ class _TvSignInScreenState extends State<TvSignInScreen> {
                 else ...[
                   Text('1. Make sure your phone is on the same Wi-Fi as this TV.', style: theme.textTheme.titleMedium),
                   const SizedBox(height: 6),
-                  Text('2. Point your phone\'s camera at the QR code and open it in Bolt.',
+                  Text('2. In Bolt on your phone: Settings → Accounts → Send sign-ins to a TV → Scan.',
                       style: theme.textTheme.titleMedium),
                   const SizedBox(height: 6),
                   Text('3. Tap Send. The TV signs in to the same Twitch and Kick accounts.',
                       style: theme.textTheme.titleMedium),
                   const SizedBox(height: 20),
-                  Text('No camera? In Bolt on your phone: Settings → Accounts → Send sign-ins to a TV, and enter:',
+                  Text('Or type these on that same screen:',
                       style: theme.textTheme.bodyMedium?.copyWith(color: muted)),
                   const SizedBox(height: 8),
                   if (s.address != null)
@@ -146,6 +147,26 @@ class _SendToTvScreenState extends State<SendToTvScreen> {
   bool _sending = false;
   String? _done;
 
+  /// Address and code came from the TV's QR code (opened or scanned).
+  late bool _fromQr = widget.host != null && widget.code != null;
+
+  /// Scans the TV's QR code with Bolt's own scanner (the iPhone Camera app
+  /// doesn't open Bolt's links).
+  Future<void> _scan() async {
+    final raw = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const _ScanPage()),
+    );
+    final uri = raw == null ? null : Uri.tryParse(raw);
+    final host = uri?.queryParameters['h'];
+    final code = uri?.queryParameters['c'];
+    if (!mounted || host == null || code == null) return;
+    setState(() {
+      _host.text = host;
+      _code.text = TvPairing.showCode(code);
+      _fromQr = true;
+    });
+  }
+
   @override
   void dispose() {
     _host.dispose();
@@ -172,7 +193,7 @@ class _SendToTvScreenState extends State<SendToTvScreen> {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
     final have = TvPairing.available();
-    final fromQr = widget.host != null && widget.code != null;
+    final fromQr = _fromQr;
     return Scaffold(
       appBar: AppBar(title: const Text('Send sign-ins to a TV')),
       body: ListView(
@@ -189,8 +210,9 @@ class _SendToTvScreenState extends State<SendToTvScreen> {
           ] else ...[
             Text(
               fromQr
-                  ? 'Send your sign-ins to the TV at ${widget.host}?'
-                  : 'On the TV, open Bolt → Sign in from phone. Enter the address and code it shows.',
+                  ? 'Send your sign-ins to the TV at ${_host.text}?'
+                  : 'On the TV, open Bolt → Sign in from phone. Scan the QR code it shows, '
+                      'or type its address and code.',
               style: theme.textTheme.bodyLarge,
             ),
             const SizedBox(height: 12),
@@ -203,6 +225,12 @@ class _SendToTvScreenState extends State<SendToTvScreen> {
             ),
             const SizedBox(height: 16),
             if (!fromQr) ...[
+              FilledButton.tonalIcon(
+                onPressed: _scan,
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                label: const Text("Scan the TV's QR code"),
+              ),
+              const SizedBox(height: 16),
               TextField(
                 controller: _host,
                 // Not the number pad: in many regions its "decimal" key is a
@@ -243,6 +271,75 @@ class _SendToTvScreenState extends State<SendToTvScreen> {
               style: theme.textTheme.bodySmall?.copyWith(color: muted),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The camera, looking for the TV's QR code.
+class _ScanPage extends StatefulWidget {
+  const _ScanPage();
+
+  @override
+  State<_ScanPage> createState() => _ScanPageState();
+}
+
+class _ScanPageState extends State<_ScanPage> {
+  bool _done = false;
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_done) return;
+    for (final b in capture.barcodes) {
+      final raw = b.rawValue;
+      if (raw != null && raw.startsWith('relay://pair')) {
+        _done = true;
+        Navigator.of(context).pop(raw);
+        return;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Scan the TV's QR code")),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          MobileScanner(
+            onDetect: _onDetect,
+            errorBuilder: (context, error) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  "Bolt can't use the camera. Allow it in your phone's Settings → Bolt → Camera, "
+                  'or go back and type the address and code instead.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+          Center(
+            child: Container(
+              width: 240,
+              height: 240,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white, width: 3),
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+          ),
+          const Positioned(
+            left: 24,
+            right: 24,
+            bottom: 40,
+            child: Text(
+              "Point at the QR code on the TV's Sign in from phone screen.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white, shadows: [Shadow(blurRadius: 4)]),
+            ),
+          ),
         ],
       ),
     );

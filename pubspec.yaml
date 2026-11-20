@@ -36,6 +36,8 @@ dependencies:
   # which the TV shows as a QR code too.
   cryptography: ^2.7.0
   qr_flutter: ^4.1.0
+  # Scanning the TV's QR code on the phone.
+  mobile_scanner: ^7.1.4
   # Tells a Fire TV / Android TV apart from a phone (TV layout).
   device_info_plus: ^11.3.0
   # Opens relay://open/<platform>/<name> links (taps on live alerts).

@@ -185,6 +185,14 @@ void _ios() {
   }
   // Sending your sign-ins to Bolt on a TV goes over the home Wi-Fi, which
   // iOS asks permission for.
+  if (!s.contains('NSCameraUsageDescription')) {
+    s = s.replaceFirst(
+      RegExp(r'</dict>\s*</plist>\s*$'),
+      '\t<key>NSCameraUsageDescription</key>\n'
+      '\t<string>Bolt scans the QR code on your TV to send it your sign-ins.</string>\n'
+      '</dict>\n</plist>\n',
+    );
+  }
   if (!s.contains('NSLocalNetworkUsageDescription')) {
     s = s.replaceFirst(
       RegExp(r'</dict>\s*</plist>\s*$'),
