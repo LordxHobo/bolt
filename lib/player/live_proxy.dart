@@ -426,7 +426,7 @@ class LiveProxy {
   /// of drifting back to its own default (~6 s).
   double get holdBack => lowLatencyTarget(edgeLag) + holdBackExtra;
 
-  static double lowLatencyTarget(double? edge) => edge == null ? 3.0 : (edge + 2.0).clamp(2.5, 20.0);
+  static double lowLatencyTarget(double? edge) => edge == null ? 3.0 : (edge + 2.5).clamp(3.0, 20.0);
 
   void _setAdState(AdState state) {
     if (!_closed) adState.value = state;

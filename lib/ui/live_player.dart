@@ -429,10 +429,9 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
       return;
     }
     final ivs = c.managesLatency;
-    // Catch up by jumping forward through video that's already loaded, not
-    // by playing faster: at 1.1-1.25x a 60 fps stream drops frames and looks
-    // choppy. Playback always stays at normal speed.
-    if (!ivs) _setSpeed(1.0);
+    // Catch up smoothly: small gaps by playing 3% faster (too little to see
+    // or hear; 1.1x and up made 60 fps streams choppy), and only a big gap
+    // (after a long stall) by jumping, which looks like a reload.
     var ahead = bufferedEnd == null ? 0.0 : (bufferedEnd - position).inMilliseconds / 1000;
     // (IVS may report how much is buffered rather than up to where.)
     if (ivs && bufferedEnd != null && bufferedEnd < position) {
@@ -451,12 +450,12 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
         : android
             ? LiveProxy.lowLatencyTarget(edge)
             : (edge + 2.5).clamp(3.0, 20.0);
-    // After 5 minutes without running dry, try half a second closer again
-    // (at most once every 5 minutes).
+    // After 10 minutes without running dry, try half a second closer again
+    // (at most once every 10 minutes): a steady distance beats a jumpy one.
     final now = DateTime.now();
     if (_extra > 0 &&
-        now.difference(_lastStall) > const Duration(minutes: 5) &&
-        now.difference(_lastEase) > const Duration(minutes: 5)) {
+        now.difference(_lastStall) > const Duration(minutes: 10) &&
+        now.difference(_lastEase) > const Duration(minutes: 10)) {
       _extra = (_extra - 0.5).clamp(0.0, _maxExtra);
       _lastEase = now;
     }
@@ -465,15 +464,24 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     proxy.holdBackExtra = _extra;
     final settling = DateTime.now().difference(_startedAt) < const Duration(seconds: 10);
     final behind = latency - target;
-    // Android's player aims at the same spot by itself (see holdBack), so
-    // jumps there only tidy up what's left.
-    final minBehind = ivs || android ? 1.0 : 1.5;
-    final keep = ivs || android ? 1.0 : 1.5;
+    final keep = ivs ? 1.0 : 1.5;
+    // Gently faster while a little behind and there's video to spare; back
+    // to normal once there (or the buffer gets thin). The IVS player keeps
+    // its own pace.
+    if (!ivs) {
+      if (!settling && behind > 0.5 && ahead > 1.2) {
+        _setSpeed(1.03);
+      } else if (behind < 0.15 || ahead < 0.8) {
+        _setSpeed(1.0);
+      }
+    }
+    // Jump only for a big gap that gentle speed would take minutes to close.
+    final minBehind = ivs ? 2.5 : 4.0;
     if (!settling && behind > minBehind && ahead > keep + 1.0 && latency < 60) {
       _behindFor++;
       final sinceJump = DateTime.now().difference(_lastJump);
-      // Behind for a few readings in a row, and not right after a jump.
-      if (_behindFor >= 3 && sinceJump > const Duration(seconds: 15)) {
+      // Behind for a few readings in a row, and not soon after a jump.
+      if (_behindFor >= 3 && sinceJump > const Duration(seconds: 60)) {
         // Keep some video loaded after the jump.
         final jump = behind < ahead - keep ? behind : ahead - keep;
         if (jump > 0.8) {
@@ -499,7 +507,7 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     final target = _target;
     final latency = _latency;
     if (target != null && latency != null && latency > target + 3) return;
-    _extra = (_extra + 0.75).clamp(0.0, _maxExtra);
+    _extra = (_extra + 1.0).clamp(0.0, _maxExtra);
     _lastStall = now;
     _lastEase = now;
   }
