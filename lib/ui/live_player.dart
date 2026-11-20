@@ -445,7 +445,12 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     // The IVS player plays the segment still being recorded, so it can sit
     // at ~3 s on low-latency streams; Apple's needs finished segments.
     final edge = proxy.edgeLag;
-    final base = ivs || edge == null ? 3.0 : (edge + 2.5).clamp(3.0, 20.0);
+    final android = defaultTargetPlatform == TargetPlatform.android;
+    final base = ivs || edge == null
+        ? 3.0
+        : android
+            ? LiveProxy.lowLatencyTarget(edge)
+            : (edge + 2.5).clamp(3.0, 20.0);
     // After 5 minutes without running dry, try half a second closer again
     // (at most once every 5 minutes).
     final now = DateTime.now();
@@ -457,10 +462,13 @@ class LivePlayerState extends State<LivePlayer> with WidgetsBindingObserver {
     }
     final target = base + _extra;
     _target = target;
+    proxy.holdBackExtra = _extra;
     final settling = DateTime.now().difference(_startedAt) < const Duration(seconds: 10);
     final behind = latency - target;
-    final minBehind = ivs ? 1.0 : 1.5;
-    final keep = ivs ? 1.0 : 1.5;
+    // Android's player aims at the same spot by itself (see holdBack), so
+    // jumps there only tidy up what's left.
+    final minBehind = ivs || android ? 1.0 : 1.5;
+    final keep = ivs || android ? 1.0 : 1.5;
     if (!settling && behind > minBehind && ahead > keep + 1.0 && latency < 60) {
       _behindFor++;
       final sinceJump = DateTime.now().difference(_lastJump);

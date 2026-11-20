@@ -293,7 +293,7 @@ class LiveProxy {
     if (!proxySegments) return stitcher.render();
     final gen = _generation;
     final port = _server!.port;
-    return stitcher.render(uriFor: (s) {
+    return stitcher.render(holdBack: lowLatency ? holdBack : null, uriFor: (s) {
       final name = s.uri.pathSegments.isEmpty ? '' : s.uri.pathSegments.last;
       final dot = name.lastIndexOf('.');
       final ext = dot < 0 ? '.ts' : name.substring(dot);
@@ -416,6 +416,17 @@ class LiveProxy {
     if (_edgeAges.length < 3) return null;
     return _edgeAges.reduce((a, b) => a > b ? a : b);
   }
+
+  /// Set by the player after it runs dry: how much further back to sit.
+  double holdBackExtra = 0;
+
+  /// Where to play on Android (seconds behind live): just behind the newest
+  /// video, with room for the next bit to arrive. Written into the playlist,
+  /// so Android's player aims for the same spot as Bolt's catch-up instead
+  /// of drifting back to its own default (~6 s).
+  double get holdBack => lowLatencyTarget(edgeLag) + holdBackExtra;
+
+  static double lowLatencyTarget(double? edge) => edge == null ? 3.0 : (edge + 2.0).clamp(2.5, 20.0);
 
   void _setAdState(AdState state) {
     if (!_closed) adState.value = state;

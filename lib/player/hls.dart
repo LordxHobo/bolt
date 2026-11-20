@@ -395,6 +395,7 @@ class Stitcher {
     Uri Function(StitchedSegment segment)? uriFor,
     Set<Uri> prefetchTags = const {},
     String prefetchTag = '#EXT-X-PREFETCH:',
+    double? holdBack,
   }) {
     var tail = _segments.length;
     while (tail > 0 && prefetchTags.contains(_segments[tail - 1].uri)) {
@@ -413,6 +414,9 @@ class Stitcher {
       ..writeln('#EXT-X-TARGETDURATION:${maxDur.ceil()}')
       ..writeln('#EXT-X-MEDIA-SEQUENCE:${segments.isEmpty ? _nextSeq : segments.first.seq}')
       ..writeln('#EXT-X-DISCONTINUITY-SEQUENCE:$_discontinuitySeq');
+    // How far behind live to play (Android's player aims for this, and
+    // otherwise defaults to 3 segments, ~6 s).
+    if (holdBack != null) b.writeln('#EXT-X-SERVER-CONTROL:HOLD-BACK=${holdBack.toStringAsFixed(1)}');
     StitchedSegment? prev;
     for (final s in segments) {
       if (s.discontinuity) b.writeln('#EXT-X-DISCONTINUITY');
