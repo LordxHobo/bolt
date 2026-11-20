@@ -89,7 +89,15 @@ class TvPairing {
     final out = <String, dynamic>{'v': 1};
     final twitch = Services.twitch;
     if (twitch.isWebLogin && twitch.accessToken != null) {
-      out['twitch'] = {'token': twitch.accessToken, 'login': twitch.login};
+      // The follow list too, so the TV doesn't have to read it from twitch.tv
+      // (a heavy page for a TV) right away.
+      Object? follows;
+      try {
+        final raw = Services.settings.prefs.getString('twitchFollowList');
+        final m = raw == null ? null : jMap(jsonDecode(raw));
+        if (m != null && m['login'] == twitch.login) follows = m;
+      } catch (_) {}
+      out['twitch'] = {'token': twitch.accessToken, 'login': twitch.login, if (follows != null) 'follows': follows};
     }
     if (KickFollows.isSignedIn) {
       final cookies = await CookieManager.instance().getCookies(url: WebUri('https://kick.com/'));
@@ -162,6 +170,12 @@ class TvPairing {
     final token = jStr(t?['token']);
     if (token != null) {
       try {
+        // The phone's follow list first, so the TV's home shows it as soon
+        // as the sign-in lands.
+        final follows = jMap(t?['follows']);
+        if (follows != null && follows['login'] != null && follows['login'] == jStr(t?['login'])) {
+          await Services.settings.prefs.setString('twitchFollowList', jsonEncode(follows));
+        }
         await Services.twitch.signInWithWebToken(token);
         // The hidden twitch.tv page (your follow list) signs in with the
         // website's own cookie.

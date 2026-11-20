@@ -118,6 +118,18 @@ class KickWeb {
           pending.complete();
         }
       },
+      // Android: the page's process was killed (low memory, e.g. a TV).
+      // Start a fresh one next time instead of waiting on a dead page.
+      onRenderProcessGone: (controller, detail) {
+        debugPrint('kick.com page crashed');
+        final h = _headless;
+        _headless = null;
+        _controller = null;
+        final pending = _ready;
+        _ready = null;
+        if (pending != null && !pending.isCompleted) pending.complete();
+        unawaited(h?.dispose().catchError((Object _) {}));
+      },
     );
     await _headless!.run();
     await ready.future.timeout(const Duration(seconds: 30), onTimeout: () {});
@@ -404,6 +416,14 @@ class _PreviewCamera {
       onLoadStop: (c, _) {
         _controller = c;
         if (!ready.isCompleted) ready.complete();
+      },
+      onRenderProcessGone: (c, detail) {
+        final v = _view;
+        _view = null;
+        _controller = null;
+        _ready = null;
+        if (!ready.isCompleted) ready.complete();
+        unawaited(v?.dispose().catchError((Object _) {}));
       },
     );
     await _view!.run();

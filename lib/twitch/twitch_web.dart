@@ -7,6 +7,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../core/net.dart';
 import '../core/silent_page.dart';
+import '../core/tv.dart';
 
 /// Requests to Twitch's site API made from inside a hidden twitch.tv page.
 ///
@@ -83,6 +84,22 @@ class TwitchWeb {
   InAppWebViewController? _controller;
   Completer<void>? _ready;
 
+  /// The page crashed this session (a TV has little memory for twitch.tv).
+  /// Not tried again on a TV until Bolt restarts.
+  bool crashed = false;
+
+  /// The page's process died: forget it (the next use starts a new one) and
+  /// let anyone waiting on it carry on.
+  void _gone() {
+    crashed = true;
+    final h = _headless;
+    _headless = null;
+    _controller = null;
+    final pending = _ready;
+    if (pending != null && !pending.isCompleted) pending.complete();
+    unawaited(h?.dispose().catchError((Object _) {}));
+  }
+
   Future<void> _openFollowingPage() async {
     if (_headless != null && _controller != null) {
       // Reload so the page asks for the follow list again.
@@ -96,8 +113,9 @@ class TwitchWeb {
     _ready = ready;
     _headless = HeadlessInAppWebView(
       // A real desktop-sized window, so the list's "load more when the
-      // bottom comes into view" works while scrolling it.
-      initialSize: const Size(1280, 1600),
+      // bottom comes into view" works while scrolling it (smaller on a TV,
+      // which has far less memory).
+      initialSize: TvMode.isTv ? const Size(1100, 700) : const Size(1280, 1600),
       initialUrlRequest: URLRequest(url: WebUri(_followingPage)),
       initialUserScripts: UnmodifiableListView([
         UserScript(source: _recorder, injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START),
@@ -128,6 +146,12 @@ class TwitchWeb {
           pending.complete();
         }
       },
+      // Android: the page ran out of memory and its process was killed.
+      // Handling it keeps Bolt itself running.
+      onRenderProcessGone: (controller, detail) {
+        debugPrint('twitch.tv page crashed (${detail.didCrash ? 'crash' : 'out of memory'})');
+        _gone();
+      },
     );
     await _headless!.run();
     await ready.future.timeout(const Duration(seconds: 30), onTimeout: () {});
@@ -139,6 +163,9 @@ class TwitchWeb {
     required String login,
     required String token,
   }) async {
+    if (crashed && TvMode.isTv) {
+      throw ApiException("twitch.tv's page doesn't fit in this TV's memory");
+    }
     String? lastError;
     for (var attempt = 0; attempt < 2; attempt++) {
       await _openFollowingPage();
@@ -261,7 +288,7 @@ class TwitchWeb {
                      (j && j.errors ? j.errors.map((e) => e.message).join('; ') : 'HTTP ' + r.status) };
           ''',
           arguments: {'clientId': _webClientId, 'token': token, 'login': login},
-        );
+        ).timeout(const Duration(seconds: 100)); // a crashed page never answers
         final value = result?.value;
         if (value is Map) {
           final logins = value['logins'];

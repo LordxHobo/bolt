@@ -157,7 +157,10 @@ class _HomeScreenState extends State<HomeScreen>
   /// hidden twitch.tv page), so Relay keeps the last one it got, shows that
   /// straight away, and only fetches it again now and then in the background.
   static const _liveCheckEvery = Duration(seconds: 45);
-  static const _followListMaxAge = Duration(minutes: 30);
+  // A TV re-reads the full list far less often: it needs a heavy twitch.tv
+  // page, and the list also arrives from the phone when you sign in.
+  static Duration get _followListMaxAge =>
+      TvMode.isTv ? const Duration(hours: 12) : const Duration(minutes: 30);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
