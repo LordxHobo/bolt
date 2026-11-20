@@ -137,6 +137,10 @@ class Settings extends ChangeNotifier {
   bool previewNotes = false;
   bool landscapeChat = true;
 
+  /// Chat with a full-screen video (phone landscape, TV): 'off', 'side'
+  /// (beside the video) or 'overlay' (on top of it, see-through).
+  String chatMode = 'side';
+
   /// TV layout: 'auto', 'on' or 'off' (applies at next start).
   String tvLayout = 'auto';
 
@@ -203,6 +207,7 @@ class Settings extends ChangeNotifier {
     homeTiles = _prefs.getBool('homeTiles') ?? false;
     previewNotes = _prefs.getBool('previewNotes') ?? false;
     landscapeChat = _prefs.getBool('landscapeChat') ?? true;
+    chatMode = _prefs.getString('chatMode') ?? (landscapeChat ? 'side' : 'off');
     tvLayout = _prefs.getString('tvLayout') ?? 'auto';
     alertsServer = _prefs.getString('alertsServer') ?? '';
     alertsTopic = _prefs.getString('alertsTopic') ?? '';
@@ -405,6 +410,12 @@ class Settings extends ChangeNotifier {
   Future<void> setTvLayout(String v) async {
     tvLayout = v;
     await _prefs.setString('tvLayout', v);
+    notifyListeners();
+  }
+
+  Future<void> setChatMode(String v) async {
+    chatMode = v;
+    await _prefs.setString('chatMode', v);
     notifyListeners();
   }
 

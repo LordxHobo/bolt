@@ -81,7 +81,49 @@ class _ChannelScreenState extends State<ChannelScreen> {
   ChatController? _chat;
   Timer? _infoTimer;
   bool? _wasLandscape;
-  late bool _showChatLandscape = Services.settings.landscapeChat;
+  /// Chat with a full-screen video: off, beside it, or on top of it.
+  late String _chatMode = Services.settings.chatMode;
+  bool get _showChatLandscape => _chatMode == 'side';
+  bool get _chatOverlay => _chatMode == 'overlay';
+
+  void _setChatMode(String m) {
+    if (m == _chatMode) return;
+    setState(() => _chatMode = m);
+    Services.settings.setChatMode(m);
+  }
+
+  /// Off → beside → on the video → off.
+  void _cycleChat() => _setChatMode(switch (_chatMode) {
+        'off' => 'side',
+        'side' => 'overlay',
+        _ => 'off',
+      });
+
+  /// What the next tap of the chat button does (TV options bar).
+  (IconData, String) get _nextChatAction => switch (_chatMode) {
+        'off' => (Icons.chat_outlined, 'Show chat'),
+        'side' => (Icons.layers_outlined, 'Chat on the video'),
+        _ => (Icons.speaker_notes_off_outlined, 'Hide chat'),
+      };
+
+  /// Chat on top of the video: see-through, older messages fading out
+  /// towards the top, and touches go to the video underneath.
+  Widget _overlayChat() {
+    return IgnorePointer(
+      child: ExcludeFocus(
+        child: ShaderMask(
+          shaderCallback: (r) => const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.transparent, Colors.white, Colors.white],
+            stops: [0, 0.3, 1],
+          ).createShader(r),
+          blendMode: BlendMode.dstIn,
+          child: ChatOverlayScope(child: _chatArea(readOnly: true)),
+        ),
+      ),
+    );
+  }
 
   // Mini player: swipe the video down to shrink it into a corner with the
   // home list underneath. The player widget stays the same, so the stream
@@ -210,7 +252,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
     });
   }
 
-  void _toggleLandscapeChat() => setState(() => _showChatLandscape = !_showChatLandscape);
+  void _toggleLandscapeChat() => _cycleChat();
 
   /// iPhone: this channel uses the IVS player (its own choice or the default).
   bool get _ivs =>
@@ -537,11 +579,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowRight) {
-      if (!_showChatLandscape) setState(() => _showChatLandscape = true);
+      // Right: chat beside the video, then on top of it.
+      if (_chatMode == 'off') {
+        _setChatMode('side');
+      } else if (_chatMode == 'side') {
+        _setChatMode('overlay');
+      }
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowLeft) {
-      if (_showChatLandscape) setState(() => _showChatLandscape = false);
+      _setChatMode('off');
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.mediaPlayPause ||
@@ -585,7 +632,15 @@ class _ChannelScreenState extends State<ChannelScreen> {
           children: [
             Row(
               children: [
-                Expanded(child: _player(latencyRightInset: 16, tv: true)),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(child: _player(latencyRightInset: 16, tv: true)),
+                      if (_chatOverlay)
+                        Positioned(right: 16, top: 56, bottom: 16, width: 360, child: _overlayChat()),
+                    ],
+                  ),
+                ),
                 if (_showChatLandscape)
                   SizedBox(
                     width: 320,
@@ -605,7 +660,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(20)),
                   child: Text(
-                    'OK: options  ·  ◀ ▶: hide / show chat  ·  Back: close',
+                    'OK: options  ·  ▶: chat beside / on the video  ·  ◀: no chat  ·  Back: close',
                     style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white),
                   ),
                 ),
@@ -668,9 +723,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
                           children: [
                             TvButton(
                               focusNode: _tvFirst,
-                              icon: _showChatLandscape ? Icons.speaker_notes_off_outlined : Icons.chat_outlined,
-                              label: _showChatLandscape ? 'Hide chat' : 'Show chat',
-                              onPressed: () => setState(() => _showChatLandscape = !_showChatLandscape),
+                              icon: _nextChatAction.$1,
+                              label: _nextChatAction.$2,
+                              onPressed: _cycleChat,
                             ),
                             if (!_useWebPlayer)
                               TvButton(
@@ -721,6 +776,14 @@ class _ChannelScreenState extends State<ChannelScreen> {
               Positioned.fill(
                 child: _player(onDoubleTap: _toggleLandscapeChat, latencyRightInset: 52),
               ),
+              if (_chatOverlay)
+                Positioned(
+                  right: 8,
+                  top: 52,
+                  bottom: 8,
+                  width: 300,
+                  child: SafeArea(left: false, top: false, child: _overlayChat()),
+                ),
               Positioned(
                 top: 8,
                 left: 8,
@@ -733,7 +796,11 @@ class _ChannelScreenState extends State<ChannelScreen> {
                 top: 8,
                 right: 8,
                 child: _OverlayButton(
-                  icon: _showChatLandscape ? Icons.chat_rounded : Icons.chat_outlined,
+                  icon: switch (_chatMode) {
+                    'side' => Icons.chat_rounded,
+                    'overlay' => Icons.layers_rounded,
+                    _ => Icons.chat_outlined,
+                  },
                   onTap: _toggleLandscapeChat,
                 ),
               ),

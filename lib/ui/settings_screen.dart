@@ -354,11 +354,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
           value: _settings.showTimestamps,
           onChanged: (v) => _settings.setShowTimestamps(v),
         ),
-        SwitchListTile(
-          title: const Text('Show chat in landscape'),
-          subtitle: const Text('Toggle it anytime with the chat button on the video'),
-          value: _settings.landscapeChat,
-          onChanged: (v) => _settings.setLandscapeChat(v),
+        ListTile(
+          title: const Text('Chat with a full-screen video'),
+          subtitle: const Text('Phone in landscape and TV. Double-tap the video (phone) or use the chat '
+              'button to switch: off → beside the video → on top of the video → off'),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'off', label: Text('Off')),
+              ButtonSegment(value: 'side', label: Text('Beside')),
+              ButtonSegment(value: 'overlay', label: Text('On the video')),
+            ],
+            selected: {_settings.chatMode},
+            showSelectedIcon: false,
+            onSelectionChanged: (v) => _settings.setChatMode(v.first),
+          ),
         ),
       ];
 

@@ -530,6 +530,18 @@ class _StatusBar extends StatelessWidget {
 }
 
 /// One chat message.
+/// Chat drawn on top of the video: text gets a dark outline so it reads
+/// over any picture.
+class ChatOverlayScope extends InheritedWidget {
+  const ChatOverlayScope({super.key, required super.child});
+
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ChatOverlayScope>() != null;
+
+  @override
+  bool updateShouldNotify(ChatOverlayScope oldWidget) => false;
+}
+
 class ChatLine extends StatelessWidget {
   const ChatLine({
     super.key,
@@ -624,9 +636,17 @@ class ChatLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final overlay = ChatOverlayScope.of(context);
     final base = theme.textTheme.bodyMedium!.copyWith(
       fontSize: 14 * scale,
       height: 1.45,
+      color: overlay ? Colors.white : null,
+      shadows: overlay
+          ? const [
+              Shadow(color: Colors.black, blurRadius: 3),
+              Shadow(color: Colors.black, blurRadius: 1, offset: Offset(1, 1)),
+            ]
+          : null,
     );
     final emoteHeight = 28.0 * scale;
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.55);

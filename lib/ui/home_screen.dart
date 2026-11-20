@@ -871,6 +871,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Divider()),
                   for (final (i, l, f) in <(IconData, String, VoidCallback)>[
+                    (Icons.add_rounded, 'Add channel', _showOpenDialog),
                     (
                       Icons.search_rounded,
                       'Browse',
@@ -1308,17 +1309,30 @@ class _OpenChannelSheet extends StatefulWidget {
 
 class _OpenChannelSheetState extends State<_OpenChannelSheet> {
   final _controller = TextEditingController();
+  // On a TV the remote moves past the field without opening the keyboard;
+  // the "Type a channel name" button opens it.
+  late final _field = FocusNode(skipTraversal: TvMode.isTv);
   StreamPlatform _platform = StreamPlatform.twitch;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
     _controller.dispose();
+    _field.dispose();
     super.dispose();
   }
 
   void _submit(bool favorite) {
     final raw = _controller.text.trim();
-    if (raw.isEmpty) return;
+    if (raw.isEmpty) {
+      if (TvMode.isTv) _field.requestFocus();
+      return;
+    }
     var platform = _platform;
     // Pasted links pick the platform automatically.
     if (raw.contains('kick.com')) platform = StreamPlatform.kick;
@@ -1328,6 +1342,7 @@ class _OpenChannelSheetState extends State<_OpenChannelSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
       padding: EdgeInsets.fromLTRB(
           20, 0, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
@@ -1335,47 +1350,131 @@ class _OpenChannelSheetState extends State<_OpenChannelSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SegmentedButton<StreamPlatform>(
-            segments: const [
-              ButtonSegment(value: StreamPlatform.twitch, label: Text('Twitch')),
-              ButtonSegment(value: StreamPlatform.kick, label: Text('Kick')),
+          Text('Which platform?', style: theme.textTheme.labelLarge),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              for (final p in StreamPlatform.values) ...[
+                if (p != StreamPlatform.values.first) const SizedBox(width: 12),
+                Expanded(
+                  child: _PlatformChoice(
+                    platform: p,
+                    selected: _platform == p,
+                    autofocus: TvMode.isTv && p == _platform,
+                    onTap: () => setState(() => _platform = p),
+                  ),
+                ),
+              ],
             ],
-            selected: {_platform},
-            onSelectionChanged: (s) => setState(() => _platform = s.first),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _controller,
-            autofocus: true,
+            focusNode: _field,
+            autofocus: !TvMode.isTv,
             autocorrect: false,
             textInputAction: TextInputAction.go,
-            decoration: const InputDecoration(
-              labelText: 'Channel name or link',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: '${_platform.label} channel name or link',
+              border: const OutlineInputBorder(),
             ),
             onSubmitted: (_) => _submit(false),
           ),
+          if (TvMode.isTv) ...[
+            const SizedBox(height: 10),
+            TvButton(
+              icon: Icons.keyboard_rounded,
+              label: _controller.text.isEmpty ? 'Type a channel name' : 'Change the name',
+              onPressed: () => _field.requestFocus(),
+            ),
+          ],
           const SizedBox(height: 16),
           Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => _submit(true),
-                  icon: const Icon(Icons.star_outline_rounded),
-                  label: const Text('Favorite'),
+                child: TvFocusRing(
+                  radius: 20,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _submit(true),
+                    icon: const Icon(Icons.star_outline_rounded),
+                    label: const Text('Favorite'),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: FilledButton.icon(
-                  onPressed: () => _submit(false),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Watch'),
+                child: TvFocusRing(
+                  radius: 20,
+                  child: FilledButton.icon(
+                    onPressed: () => _submit(false),
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text('Watch'),
+                  ),
                 ),
               ),
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A big Twitch / Kick choice: the chosen one is filled in its platform's
+/// colour with a tick, so it's obvious at a glance (and from the sofa).
+class _PlatformChoice extends StatelessWidget {
+  const _PlatformChoice({
+    required this.platform,
+    required this.selected,
+    required this.onTap,
+    this.autofocus = false,
+  });
+
+  final StreamPlatform platform;
+  final bool selected;
+  final bool autofocus;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = platform.color;
+    // Kick's green needs dark text on top.
+    final onColor = platform == StreamPlatform.kick ? Colors.black : Colors.white;
+    return TvFocusRing(
+      radius: 12,
+      child: Material(
+        color: selected ? color : Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: selected ? color : theme.colorScheme.outline, width: 2),
+        ),
+        child: InkWell(
+          autofocus: autofocus,
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                  size: 20,
+                  color: selected ? onColor : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  platform.label,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: selected ? onColor : theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
